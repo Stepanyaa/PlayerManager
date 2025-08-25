@@ -1,0 +1,9 @@
+# Language for messages (e.g., 'en' for English, 'ru' for Russian)
+# If you want to help translate PlayerManager into your language Join our Discord https://discord.gg/72mzBTckKC and check the #translations channel
+language: en
+
+# Feature toggles
+features:
+  player-teleportation: true
+  inventory-inspection: true
+  punishment-system: true

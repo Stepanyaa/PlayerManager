@@ -41,7 +41,20 @@
 
 ## Commands & Permissions ⚙️
 - **Main Command:** `/playermanager`, `/pm`  
-- **Permission:** `playermanager.admin` (default: OP)  
+- **Permission:** `playermanager.admin` (default: OP) or individual permissions below:
+
+### Individual Permissions:
+- `playermanager.gui` - Access the PlayerManager GUI (includes playermanager.reset)
+- `playermanager.reload` - Reload the plugin configuration
+- `playermanager.reset` - Reset search filters
+- `playermanager.ban` - Ban players
+- `playermanager.kick` - Kick players
+- `playermanager.warn` - Warn players
+- `playermanager.mute` - Mute players
+- `playermanager.unban` - Unban players
+- `playermanager.teleport` - Teleport to players
+- `playermanager.inventory` - Inspect player inventories
+- `playermanager.updates` - Receive update notifications
 
 ✅ `/pm gui` – open the GUI  
 ✅ `/pm ban <player>`, `/pm teleport <player>` – run actions via commands  
@@ -50,10 +63,9 @@
 
 ## Help with Translations 🌍
 Want to help translate **PlayerManager** into your language?  
-We’d love your contribution!  
+We'd love your contribution!  
 
 - 💬 Join our [Discord](https://discord.gg/72mzBTckKC) and check the **#translations** channel  
-- 💻 Contribute translations via [GitHub](https://github.com/Stepanyaa/PlayerManager)  
 
 ---
 
@@ -82,7 +94,20 @@ This is my **first plugin**, feedback is very welcome!
 
 ## Команды и права ⚙️
 - **Главная команда:** `/playermanager`, `/pm`
-- **Permission:** `playermanager.admin` (по умолчанию у OP)  
+- **Permission:** `playermanager.admin` (по умолчанию у OP) или отдельные права:
+
+### Индивидуальные права:
+- `playermanager.gui` - Доступ к GUI PlayerManager (включает playermanager.reset)
+- `playermanager.reload` - Перезагрузка конфигурации плагина
+- `playermanager.reset` - Сброс поисковых фильтров
+- `playermanager.ban` - Банить игроков
+- `playermanager.kick` - Кикать игроков
+- `playermanager.warn` - Выдавать предупреждения
+- `playermanager.mute` - Мутить игроков
+- `playermanager.unban` - Разбанивать игроков
+- `playermanager.teleport` - Телепортироваться к игрокам
+- `playermanager.inventory` - Просматривать инвентари игроков
+- `playermanager.updates` - Получать уведомления об обновлениях
 
 ✅ `/pm gui` – открыть меню  
 ✅ `/pm ban <игрок>`, `/pm teleport <игрок>` – выполнить действие командой  
@@ -94,11 +119,10 @@ This is my **first plugin**, feedback is very welcome!
 Мы будем рады вашей помощи!  
 
 - 💬 Вступайте в [Discord](https://discord.gg/72mzBTckKC), канал **#translations**  
-- 💻 Делайте PR в [GitHub](https://github.com/Stepanyaa/PlayerManager)  
 
 ---
 
 ## Присоединяйся ❤️
 Это мой **первый плагин**, поэтому обратная связь очень важна!  
 - 💬 Вступай в [Discord](https://discord.gg/72mzBTckKC)  
-- 🐛 Сообщай о багах или предлагай идеи в [GitHub Issues](https://github.com/Stepanyaa/PlayerManager/issues)  
+- 🐛 Сообщай о багах или предлагай идеи в [GitHub Issues](https://github.com/Stepanyaa/PlayerManager/issues)

@@ -9,7 +9,7 @@ gui:
   previous-page: "&eПредыдущая страница"
   next-page: "&eСледующая страница"
   no-page: "&cНет страницы"
-  filter-active: "&a✓ Активный фильтр"
+  filter-active: "&aАктивный фильтр"
   player-menu-prefix: "&6Меню игрока: "
   info: "&eИнформация"
   teleport: "&aТелепорт"
@@ -53,7 +53,7 @@ error:
   teleportation-disabled: "&cТелепортация отключена!"
   inventory-inspection-disabled: "&cОсмотр инвентаря отключен!"
   punishment-system-disabled: "&cСистема наказаний отключена!"
-  cannot-target-admin: "&cВы не можете выбрать другого администратора."
+  all-features-disabled: "&cВсе функции отключены в конфигурации!"
 command:
   usage: "&cИспользование: /playermanager <gui | reload | reset | ban | kick | warn | mute | unban | teleport | inventory>"
   usage-gui: "&cИспользование: /playermanager gui"

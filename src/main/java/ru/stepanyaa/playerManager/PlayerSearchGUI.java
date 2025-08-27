@@ -1,3 +1,27 @@
+/**
+ * MIT License
+ *
+ * PlayerManager
+ * Copyright (c) 2025 Stepanyaa
+
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
 package ru.stepanyaa.playerManager;
 
 import java.text.SimpleDateFormat;
@@ -217,8 +241,6 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
             if (offlinePlayer.getName() == null) continue;
             String name = offlinePlayer.getName();
             String uuidStr = offlinePlayer.getUniqueId().toString();
-            boolean isAdmin = plugin.getPlayerDataConfig().getBoolean("players." + uuidStr + ".isAdmin", false);
-            if (isAdmin && !admin.hasPermission("playermanager.admin")) continue;
             if (!search.isEmpty() && !name.toLowerCase().contains(search.toLowerCase())) continue;
             String path = "players." + uuidStr + ".";
             PlayerResult result = new PlayerResult();
@@ -271,8 +293,15 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
         SkullMeta meta = (SkullMeta) head.getItemMeta();
         meta.setDisplayName(ChatColor.YELLOW + result.name);
         List<String> lore = new ArrayList<>();
-        lore.add(plugin.getMessage("gui.status", "Status") + ": " + (result.online ? ChatColor.GREEN + plugin.getMessage("status.online", "Online") : ChatColor.RED + plugin.getMessage("status.offline", "Offline")));
-        lore.add(plugin.getMessage("gui.ban-status", "Ban status") + ": " + (result.banned ? ChatColor.RED + plugin.getMessage("status.banned", "Banned") : ChatColor.GREEN + plugin.getMessage("status.not-banned", "Not banned")));
+        lore.add(ChatColor.GRAY + plugin.getMessage("gui.uuid", "UUID") + ": " + ChatColor.WHITE + result.uuid);
+        lore.add(ChatColor.GRAY + plugin.getMessage("gui.first-played", "First played") + ": " + ChatColor.WHITE + formatDate(result.firstPlayed));
+        lore.add(ChatColor.GRAY + plugin.getMessage("gui.last-login", "Last login") + ": " + ChatColor.WHITE + formatDate(result.lastLogin));
+        lore.add(ChatColor.GRAY + plugin.getMessage("gui.last-logout", "Last logout") + ": " + ChatColor.WHITE + formatDate(result.lastLogout));
+        if (!result.online) {
+            lore.add(ChatColor.GRAY + plugin.getMessage("gui.time-since-logout", "Time since logout") + ": " + ChatColor.WHITE + formatTimeAgo(result.lastLogout));
+        }
+        lore.add(ChatColor.GRAY + plugin.getMessage("gui.status", "Status") + ": " + (result.online ? ChatColor.GREEN + plugin.getMessage("status.online", "Online") : ChatColor.RED + plugin.getMessage("status.offline", "Offline")));
+        lore.add(ChatColor.GRAY + plugin.getMessage("gui.ban-status", "Ban status") + ": " + (result.banned ? ChatColor.RED + plugin.getMessage("status.banned", "Banned") : ChatColor.GREEN + plugin.getMessage("status.not-banned", "Not banned")));
         lore.add("");
         lore.add(plugin.getMessage("gui.actions", "&7Left click: Menu | Right click: Teleport | Shift+Right click: Punishments"));
         meta.setLore(lore);
@@ -296,7 +325,12 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
     private ItemStack createFilterItem(Filter filter) {
         ItemStack item = new ItemStack(filter.getMaterial());
         ItemMeta meta = item.getItemMeta();
-        meta.setDisplayName(filter.getColor() + filter.getDisplayName(plugin) + (currentFilter == filter ? " " + ChatColor.GREEN + plugin.getMessage("gui.filter-active", "✓ Active filter") : ""));
+        meta.setDisplayName(filter.getColor() + filter.getDisplayName(plugin));
+        if (currentFilter == filter) {
+            List<String> lore = new ArrayList<>();
+            lore.add(ChatColor.GREEN + plugin.getMessage("gui.filter-active", "Active filter"));
+            meta.setLore(lore);
+        }
         item.setItemMeta(meta);
         return item;
     }
@@ -307,6 +341,8 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
             return;
         }
         Inventory playerMenu = Bukkit.createInventory(this, 27, plugin.getMessage("gui.player-menu-prefix", "Player Menu: ") + ChatColor.YELLOW + result.name);
+        ItemStack headItem = createPlayerHead(result);
+        playerMenu.setItem(4, headItem);
         ItemStack infoItem = new ItemStack(Material.BOOK);
         ItemMeta infoMeta = infoItem.getItemMeta();
         infoMeta.setDisplayName(ChatColor.YELLOW + plugin.getMessage("gui.info", "Information"));
@@ -322,27 +358,27 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
         infoLore.add(ChatColor.GRAY + plugin.getMessage("gui.ban-status", "Ban status") + ": " + (result.banned ? ChatColor.RED + plugin.getMessage("status.banned", "Banned") : ChatColor.GREEN + plugin.getMessage("status.not-banned", "Not banned")));
         infoMeta.setLore(infoLore);
         infoItem.setItemMeta(infoMeta);
-        playerMenu.setItem(4, infoItem);
+        playerMenu.setItem(10, infoItem);
         if (getConfigValue("features.player-teleportation")) {
             ItemStack teleportItem = new ItemStack(Material.ENDER_PEARL);
             ItemMeta teleportMeta = teleportItem.getItemMeta();
             teleportMeta.setDisplayName(ChatColor.GREEN + plugin.getMessage("gui.teleport", "Teleport"));
             teleportItem.setItemMeta(teleportMeta);
-            playerMenu.setItem(11, teleportItem);
+            playerMenu.setItem(12, teleportItem);
         }
         if (getConfigValue("features.inventory-inspection")) {
             ItemStack inventoryItem = new ItemStack(Material.CHEST);
             ItemMeta inventoryMeta = inventoryItem.getItemMeta();
             inventoryMeta.setDisplayName(ChatColor.AQUA + plugin.getMessage("gui.inspect-inventory", "Inspect Inventory"));
             inventoryItem.setItemMeta(inventoryMeta);
-            playerMenu.setItem(13, inventoryItem);
+            playerMenu.setItem(14, inventoryItem);
         }
         if (getConfigValue("features.punishment-system")) {
             ItemStack punishmentsItem = new ItemStack(Material.IRON_SWORD);
             ItemMeta punishmentsMeta = punishmentsItem.getItemMeta();
             punishmentsMeta.setDisplayName(ChatColor.RED + plugin.getMessage("gui.punishments", "Punishments"));
             punishmentsItem.setItemMeta(punishmentsMeta);
-            playerMenu.setItem(15, punishmentsItem);
+            playerMenu.setItem(16, punishmentsItem);
         }
         ItemStack backItem = new ItemStack(Material.ARROW);
         ItemMeta backMeta = backItem.getItemMeta();
@@ -370,39 +406,28 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
             return;
         }
         Inventory punishmentGUI = Bukkit.createInventory(this, 27, plugin.getMessage("gui.punishment-prefix", "Punishments: ") + ChatColor.YELLOW + result.name);
-        Material[] materials = {Material.BARRIER, Material.RED_BED, Material.PAPER, Material.BOOK, Material.GREEN_DYE};
-        String[] commands = {"ban", "kick", "warn", "mute", "pardon"};
+        ItemStack headItem = createPlayerHead(result);
+        punishmentGUI.setItem(4, headItem);
+
+        Material[] materials = {Material.NETHERITE_SWORD, Material.BLAZE_ROD, Material.BOOK, Material.PAPER, Material.GREEN_DYE};
         String[] displayKeys = {"ban", "kick", "warn", "mute", "unban"};
         ChatColor[] colors = {ChatColor.RED, ChatColor.GOLD, ChatColor.YELLOW, ChatColor.GREEN, ChatColor.DARK_GREEN};
-        int[] slots = {10, 12, 14, 16, 4};
+        int[] slots = {10, 11, 13, 15, 16};
+
         for (int i = 0; i < 5; i++) {
-            if (i == 1 || i == 2 || i == 3) {
-                if (result.online) {
-                    ItemStack item = new ItemStack(materials[i]);
-                    ItemMeta meta = item.getItemMeta();
-                    meta.setDisplayName(colors[i] + plugin.getMessage("gui.punishment." + displayKeys[i], displayKeys[i].substring(0, 1).toUpperCase() + displayKeys[i].substring(1)));
-                    item.setItemMeta(meta);
-                    punishmentGUI.setItem(slots[i], item);
-                }
-            } else if (i == 0 && !result.banned) {
-                ItemStack item = new ItemStack(materials[i]);
-                ItemMeta meta = item.getItemMeta();
-                meta.setDisplayName(colors[i] + plugin.getMessage("gui.punishment." + displayKeys[i], displayKeys[i].substring(0, 1).toUpperCase() + displayKeys[i].substring(1)));
-                item.setItemMeta(meta);
-                punishmentGUI.setItem(slots[i], item);
-            } else if (i == 4 && result.banned) {
-                ItemStack item = new ItemStack(materials[i]);
-                ItemMeta meta = item.getItemMeta();
-                meta.setDisplayName(colors[i] + plugin.getMessage("gui.punishment." + displayKeys[i], displayKeys[i].substring(0, 1).toUpperCase() + displayKeys[i].substring(1)));
-                item.setItemMeta(meta);
-                punishmentGUI.setItem(slots[i], item);
-            }
+            ItemStack item = new ItemStack(materials[i]);
+            ItemMeta meta = item.getItemMeta();
+            meta.setDisplayName(colors[i] + plugin.getMessage("gui.punishment." + displayKeys[i], displayKeys[i].substring(0, 1).toUpperCase() + displayKeys[i].substring(1)));
+            item.setItemMeta(meta);
+            punishmentGUI.setItem(slots[i], item);
         }
+
         ItemStack backItem = new ItemStack(Material.ARROW);
         ItemMeta backMeta = backItem.getItemMeta();
         backMeta.setDisplayName(ChatColor.RED + plugin.getMessage("gui.back", "Back"));
         backItem.setItemMeta(backMeta);
         punishmentGUI.setItem(22, backItem);
+
         player.openInventory(punishmentGUI);
         setPlayerMenuTarget(player.getUniqueId(), result);
         setLastOpenedMenu(player.getUniqueId(), "punishment");
@@ -509,16 +534,16 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
             openPlayerMenu(player, result);
         } else if (event.getClick() == ClickType.RIGHT) {
             if (!getConfigValue("features.player-teleportation")) {
-                openPlayerMenu(player, result);
-            } else {
-                Player target = Bukkit.getPlayer(result.name);
-                if (target == null) {
-                    player.sendMessage(ChatColor.RED + plugin.getMessage("error.player-offline", "Player is offline."));
-                    return;
-                }
-                player.teleport(target);
-                player.sendMessage(ChatColor.GREEN + plugin.getMessage("action.teleported", "Teleported to %player%").replace("%player%", result.name));
+                player.sendMessage(ChatColor.RED + plugin.getMessage("error.teleportation-disabled", "Teleportation is disabled!"));
+                return;
             }
+            Player target = Bukkit.getPlayer(result.name);
+            if (target == null) {
+                player.sendMessage(ChatColor.RED + plugin.getMessage("error.player-offline", "Player is offline."));
+                return;
+            }
+            player.teleport(target);
+            player.sendMessage(ChatColor.GREEN + plugin.getMessage("action.teleported", "Teleported to %player%").replace("%player%", result.name));
         } else if (event.getClick() == ClickType.SHIFT_RIGHT) {
             if (!getConfigValue("features.punishment-system")) {
                 player.sendMessage(ChatColor.RED + plugin.getMessage("error.punishment-disabled", "Punishment system is disabled in config!"));
@@ -535,7 +560,7 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
             openSearchGUI(player);
             return;
         }
-        if (slot == 11 && getConfigValue("features.player-teleportation")) {
+        if (slot == 12 && getConfigValue("features.player-teleportation")) {
             Player target = Bukkit.getPlayer(result.name);
             if (target == null) {
                 player.sendMessage(ChatColor.RED + plugin.getMessage("error.player-offline", "Player is offline."));
@@ -549,7 +574,7 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
             player.sendMessage(ChatColor.GREEN + plugin.getMessage("action.teleported", "Teleported to %player%").replace("%player%", result.name));
             return;
         }
-        if (slot == 13 && getConfigValue("features.inventory-inspection")) {
+        if (slot == 14 && getConfigValue("features.inventory-inspection")) {
             Player target = Bukkit.getPlayer(result.name);
             if (target == null) {
                 player.sendMessage(ChatColor.RED + plugin.getMessage("error.player-offline-inventory", "Player is offline, inventory modification is impossible."));
@@ -558,7 +583,7 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
             player.openInventory(target.getInventory());
             return;
         }
-        if (slot == 15 && getConfigValue("features.punishment-system")) {
+        if (slot == 16 && getConfigValue("features.punishment-system")) {
             openPunishmentGUI(player, result);
             return;
         }
@@ -573,7 +598,7 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
         }
         String path = "players." + result.uuid + ".";
         String[] commands = {"ban", "kick", "warn", "mute", "pardon"};
-        int[] slots = {10, 12, 14, 16, 4};
+        int[] slots = {10, 11, 13, 15, 16};
         int index = -1;
         for (int i = 0; i < slots.length; i++) {
             if (slot == slots[i]) {

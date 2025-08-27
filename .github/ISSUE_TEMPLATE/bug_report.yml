@@ -16,7 +16,7 @@ body:
     attributes:
       label: PlayerManager version
       description: Full version in numbers, "latest" is not a version.
-      placeholder: 2.1.0
+      placeholder: 1.0.2
     validations:
       required: true
 
@@ -45,19 +45,6 @@ body:
     attributes:
       label: Expected behavior
       description: How the plugin is supposed to behave instead with your configuration.
-      render: md
-    validations:
-      required: true
-
-  - type: textarea
-    id: reproduction-steps
-    attributes:
-      label: Steps to reproduce
-      description: What to do in order to reproduce this issue.
-      value: |
-        Step 1: ...
-        Step 2: ...
-        Step 3: ...
       render: md
     validations:
       required: true

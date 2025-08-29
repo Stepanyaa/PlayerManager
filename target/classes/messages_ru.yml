@@ -1,4 +1,4 @@
-#Сообщения на русском языке для PlayerManager
+# Сообщения на русском языке для PlayerManager
 
 gui:
   title: "&6Управление игроками"
@@ -14,7 +14,27 @@ gui:
   info: "&eИнформация"
   teleport: "&aТелепорт"
   inspect-inventory: "&bОсмотреть инвентарь"
+  ender-chest: "&dОсмотреть эндер-сундук"
   punishments: "&cНаказания"
+  player-info: "&9Информация и действия"
+  player-info-prefix: "&9Информация: "
+  health: "&cЗдоровье"
+  current-health: "Текущее здоровье"
+  heal: "&aИсцелить"
+  kill: "&4Убить"
+  stats: "&eХарактеристики игрока"
+  level: "&aУровень"
+  hunger: "&6Голод"
+  location: "&8Координаты"
+  gamemode: "&9Сменить режим"
+  gamemode-gui: "&9Режим игры"
+  survival: "&aВыживание"
+  creative: "&bКреатив"
+  adventure: "&eПриключение"
+  spectator: "&dНаблюдатель"
+  confirm: "&aПодтвердить"
+  gamemode-prefix: "&9Смена режима: "
+  gamemode-confirm-prefix: "&9Подтвердить креатив: "
   back: "&cНазад"
   uuid: "UUID"
   first-played: "Первый вход"
@@ -27,12 +47,12 @@ gui:
   enter-search: "&eВведите имя для поиска: "
   cancel: "&c[Отмена]"
   punishment-prefix: "&cНаказания: "
-  punishment:
-    ban: "&cБан"
-    kick: "&cКик"
-    warn: "&cПредупреждение"
-    mute: "&cМут"
-    unban: "&aРазбан"
+punishment:
+  ban: "&cБан"
+  kick: "&cКик"
+  warn: "&cПредупреждение"
+  mute: "&cМут"
+  unban: "&aРазбан"
 filter:
   all: "&eВсе игроки"
   online: "&aИгроки онлайн"
@@ -52,8 +72,9 @@ error:
   invalid-input: "Некорректный ввод."
   teleportation-disabled: "&cТелепортация отключена!"
   inventory-inspection-disabled: "&cОсмотр инвентаря отключен!"
-  punishment-system-disabled: "&cСистема наказаний отключена!"
+  punishment-disabled: "&cСистема наказаний отключена!"
   all-features-disabled: "&cВсе функции отключены в конфигурации!"
+  cannot-target-admin: "&cВы не можете взаимодействовать с другим админом."
 command:
   usage: "&cИспользование: /playermanager <gui | reload | reset | ban | kick | warn | mute | unban | teleport | inventory>"
   usage-gui: "&cИспользование: /playermanager gui"

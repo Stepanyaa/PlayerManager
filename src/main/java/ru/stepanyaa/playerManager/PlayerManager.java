@@ -55,9 +55,10 @@ public final class PlayerManager extends JavaPlugin implements Listener, Command
     private PlayerSearchGUI playerSearchGUI;
     private String language;
     private static final String MODRINTH_API_URL = "https://api.modrinth.com/v2/project/playermanagers/version";
-    private static final String CURRENT_VERSION = "1.0.2";
+    private static final String CURRENT_VERSION = "1.0.3";
     private String latestVersion = null;
     private final Set<UUID> notifiedAdmins = new HashSet<>();
+    private static final String[] SUPPORTED_LANGUAGES = {"en", "ru"};
 
     public void onEnable() {
         this.saveDefaultConfig();
@@ -77,6 +78,7 @@ public final class PlayerManager extends JavaPlugin implements Listener, Command
             this.savePlayerDataConfig();
         }
         this.loadMessages();
+        this.updateMessagesFiles();
         this.playerSearchGUI = new PlayerSearchGUI(this);
         this.getServer().getPluginManager().registerEvents(this, this);
         this.getServer().getPluginManager().registerEvents(this.playerSearchGUI, this);
@@ -141,7 +143,36 @@ public final class PlayerManager extends JavaPlugin implements Listener, Command
             }
         });
     }
+    private void updateMessagesFiles() {
+        String lastKnownVersion = getConfig().getString("messages-version", "");
+        boolean needsUpdate = !lastKnownVersion.equals(CURRENT_VERSION);
 
+        if (needsUpdate) {
+            getLogger().info("Updating messages files to version " + CURRENT_VERSION);
+
+            for (String lang : SUPPORTED_LANGUAGES) {
+                String fileName = "messages_" + lang + ".yml";
+                File messageFile = new File(getDataFolder(), fileName);
+
+                if (messageFile.exists()) {
+                    File backupFile = new File(getDataFolder(), fileName + ".backup");
+                    try {
+                        java.nio.file.Files.copy(messageFile.toPath(), backupFile.toPath(),
+                                java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                        getLogger().info("Created backup of " + fileName);
+                    } catch (IOException e) {
+                        getLogger().warning("Failed to create backup of " + fileName + ": " + e.getMessage());
+                    }
+                }
+
+                saveResource(fileName, true);
+                getLogger().info("Updated " + fileName);
+            }
+
+            getConfig().set("messages-version", CURRENT_VERSION);
+            saveConfig();
+        }
+    }
     private boolean isNewerVersion(String newVersion, String currentVersion) {
         try {
             String cleanNewVersion = newVersion.replace("-SNAPSHOT", "");
@@ -159,6 +190,23 @@ public final class PlayerManager extends JavaPlugin implements Listener, Command
         } catch (NumberFormatException e) {
             getLogger().warning("Invalid version format: newVersion=" + newVersion + ", currentVersion=" + currentVersion);
             return false;
+        }
+    }
+
+
+    public boolean isAdminPlayer(Player player) {
+        return player.hasPermission("playermanager.admin") ||
+                player.hasPermission("playermanager.gui");
+    }
+
+
+    public boolean isAdminPlayer(OfflinePlayer offlinePlayer) {
+        if (offlinePlayer.isOnline()) {
+            return offlinePlayer.getPlayer().hasPermission("playermanager.admin") ||
+                    offlinePlayer.getPlayer().hasPermission("playermanager.gui");
+        } else {
+            String uuidStr = offlinePlayer.getUniqueId().toString();
+            return this.playerDataConfig.getBoolean("players." + uuidStr + ".isAdmin", false);
         }
     }
 
@@ -205,11 +253,12 @@ public final class PlayerManager extends JavaPlugin implements Listener, Command
                 List<String> playerNames = new ArrayList<>();
                 for (OfflinePlayer offlinePlayer : Bukkit.getOfflinePlayers()) {
                     if (offlinePlayer.getName() == null) continue;
-                    String uuidStr = offlinePlayer.getUniqueId().toString();
-                    boolean isAdmin = this.getPlayerDataConfig().getBoolean("players." + uuidStr + ".isAdmin", false);
-                    if (!isAdmin) {
-                        playerNames.add(offlinePlayer.getName());
+
+                    if (isAdminPlayer(offlinePlayer)) {
+                        continue;
                     }
+
+                    playerNames.add(offlinePlayer.getName());
                 }
                 return playerNames;
             }
@@ -239,10 +288,11 @@ public final class PlayerManager extends JavaPlugin implements Listener, Command
     private void loadMessages() {
         String messagesFileName = "messages_" + language + ".yml";
         this.messagesFile = new File(this.getDataFolder(), messagesFileName);
+
         if (!this.messagesFile.exists()) {
             if (getResource(messagesFileName) != null) {
                 this.saveResource(messagesFileName, false);
-                getLogger().info("Saved default messages file: " + messagesFileName);
+                getLogger().info("Created default messages file: " + messagesFileName);
             } else {
                 getLogger().warning("Messages file for language '" + language + "' not found, falling back to English");
                 messagesFileName = "messages_en.yml";
@@ -254,6 +304,27 @@ public final class PlayerManager extends JavaPlugin implements Listener, Command
         }
         try {
             this.messagesConfig = YamlConfiguration.loadConfiguration(this.messagesFile);
+
+            if (getResource(messagesFileName) != null) {
+                YamlConfiguration defaultConfig = YamlConfiguration.loadConfiguration(
+                        new InputStreamReader(Objects.requireNonNull(getResource(messagesFileName))));
+                boolean needsSave = false;
+                for (String key : defaultConfig.getKeys(true)) {
+                    if (!messagesConfig.contains(key)) {
+                        messagesConfig.set(key, defaultConfig.get(key));
+                        needsSave = true;
+                        getLogger().info("Added missing key to messages: " + key);
+                    }
+                }
+                if (needsSave) {
+                    try {
+                        messagesConfig.save(messagesFile);
+                        getLogger().info("Updated messages file with missing keys: " + messagesFileName);
+                    } catch (IOException e) {
+                        getLogger().warning("Failed to save updated messages file: " + e.getMessage());
+                    }
+                }
+            }
         } catch (Exception e) {
             getLogger().severe("Failed to load messages file: " + e.getMessage());
             this.messagesConfig = new YamlConfiguration();
@@ -310,6 +381,14 @@ public final class PlayerManager extends JavaPlugin implements Listener, Command
         String uuidStr = player.getUniqueId().toString();
         String path = "players." + uuidStr + ".";
         boolean needsSave = false;
+
+        boolean isAdmin = isAdminPlayer(player);
+        boolean storedAdmin = this.playerDataConfig.getBoolean(path + "isAdmin", false);
+        if (storedAdmin != isAdmin) {
+            this.playerDataConfig.set(path + "isAdmin", isAdmin);
+            needsSave = true;
+        }
+
         if (!this.playerDataConfig.contains(path + "first_played")) {
             this.playerDataConfig.set(path + "first_played", player.getFirstPlayed());
             needsSave = true;
@@ -431,12 +510,12 @@ public final class PlayerManager extends JavaPlugin implements Listener, Command
             admin.sendMessage(ChatColor.RED + getMessage("error.no-player-data", "Player data is not available."));
             return true;
         }
-        String targetUUID = target.getUniqueId().toString();
-        boolean isTargetAdmin = this.getPlayerDataConfig().getBoolean("players." + targetUUID + ".isAdmin", false);
-        if (isTargetAdmin) {
+
+        if (isAdminPlayer(target)) {
             admin.sendMessage(ChatColor.RED + getMessage("error.cannot-target-admin", "You cannot target another admin."));
             return true;
         }
+
         if (target.getUniqueId().equals(admin.getUniqueId())) {
             if (action.equals("teleport")) {
                 admin.sendMessage(ChatColor.RED + getMessage("error.self-teleport", "You can't teleport to yourself."));
@@ -449,7 +528,7 @@ public final class PlayerManager extends JavaPlugin implements Listener, Command
             sender.sendMessage(ChatColor.RED + getMessage("error.no-permission", "You don't have permission!"));
             return true;
         }
-        String path = "players." + targetUUID + ".";
+        String path = "players." + "targetUUID" + ".";
         boolean needsSave = false;
         switch (action) {
             case "ban":

@@ -34,6 +34,7 @@ import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
+import org.bukkit.event.block.Action;
 import org.bukkit.event.inventory.ClickType;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
@@ -104,6 +105,24 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
                 openPunishmentGUI(admin, result);
                 return;
             }
+        } else if (lastMenu.equals("player_info") && lastTargetName != null) {
+            PlayerResult result = getPlayerResultByName(lastTargetName);
+            if (result != null) {
+                openPlayerInfoGUI(admin, result);
+                return;
+            }
+        } else if (lastMenu.equals("gamemode") && lastTargetName != null) {
+            PlayerResult result = getPlayerResultByName(lastTargetName);
+            if (result != null) {
+                openGamemodeGUI(admin, result);
+                return;
+            }
+        } else if (lastMenu.equals("gamemode_confirm") && lastTargetName != null) {
+            PlayerResult result = getPlayerResultByName(lastTargetName);
+            if (result != null) {
+                openGamemodeConfirmGUI(admin, result);
+                return;
+            }
         }
         openSearchGUI(admin);
     }
@@ -159,23 +178,47 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
     }
 
     private String fetchHeadTexture(OfflinePlayer player) {
+        String uuidStr = player.getUniqueId().toString();
+        String cachedTexture = plugin.getPlayerDataConfig().getString("players." + uuidStr + ".head_texture", "");
+
+        if (!cachedTexture.isEmpty()) {
+            return cachedTexture;
+        }
+
         try {
+            long currentTime = System.currentTimeMillis();
+            if (currentTime - lastTextureRequestTime < 10000) {
+                return "";
+            }
+
             ItemStack skull = new ItemStack(Material.PLAYER_HEAD);
             SkullMeta meta = (SkullMeta) skull.getItemMeta();
-            meta.setOwningPlayer(player);
-            skull.setItemMeta(meta);
-            Field profileField = meta.getClass().getDeclaredField("profile");
-            profileField.setAccessible(true);
-            GameProfile gameProfile = (GameProfile) profileField.get(meta);
-            if (gameProfile != null && gameProfile.getProperties().containsKey("textures")) {
-                Property texture = gameProfile.getProperties().get("textures").iterator().next();
-                return texture.getValue();
+
+            if (meta != null) {
+                meta.setOwningPlayer(player);
+                skull.setItemMeta(meta);
+
+                Field profileField = meta.getClass().getDeclaredField("profile");
+                profileField.setAccessible(true);
+                GameProfile gameProfile = (GameProfile) profileField.get(meta);
+
+                if (gameProfile != null && gameProfile.getProperties().containsKey("textures")) {
+                    Property texture = gameProfile.getProperties().get("textures").iterator().next();
+
+                    plugin.getPlayerDataConfig().set("players." + uuidStr + ".head_texture", texture.getValue());
+                    plugin.savePlayerDataConfig();
+
+                    lastTextureRequestTime = System.currentTimeMillis();
+                    return texture.getValue();
+                }
             }
         } catch (Exception e) {
+            lastTextureRequestTime = System.currentTimeMillis() + 10000;
         }
+
         return "";
     }
-
+    private long lastTextureRequestTime = 0;
     private void setupSearchGUI(Player admin) {
         this.inventory.clear();
         this.slotMap.clear();
@@ -239,6 +282,11 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
         List<PlayerResult> results = new ArrayList<>();
         for (OfflinePlayer offlinePlayer : Bukkit.getOfflinePlayers()) {
             if (offlinePlayer.getName() == null) continue;
+
+            if (plugin.isAdminPlayer(offlinePlayer)) {
+                continue;
+            }
+
             String name = offlinePlayer.getName();
             String uuidStr = offlinePlayer.getUniqueId().toString();
             if (!search.isEmpty() && !name.toLowerCase().contains(search.toLowerCase())) continue;
@@ -289,6 +337,13 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
     }
 
     private ItemStack createPlayerHead(PlayerResult result) {
+        UUID playerUUID = UUID.fromString(result.uuid);
+        OfflinePlayer offlinePlayer = Bukkit.getOfflinePlayer(playerUUID);
+
+        if (plugin.isAdminPlayer(offlinePlayer)) {
+            return null;
+        }
+
         ItemStack head = new ItemStack(Material.PLAYER_HEAD);
         SkullMeta meta = (SkullMeta) head.getItemMeta();
         meta.setDisplayName(ChatColor.YELLOW + result.name);
@@ -315,7 +370,6 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
             } catch (Exception e) {
             }
         } else {
-            OfflinePlayer offlinePlayer = Bukkit.getOfflinePlayer(UUID.fromString(result.uuid));
             meta.setOwningPlayer(offlinePlayer);
         }
         head.setItemMeta(meta);
@@ -364,7 +418,7 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
             ItemMeta teleportMeta = teleportItem.getItemMeta();
             teleportMeta.setDisplayName(ChatColor.GREEN + plugin.getMessage("gui.teleport", "Teleport"));
             teleportItem.setItemMeta(teleportMeta);
-            playerMenu.setItem(12, teleportItem);
+            playerMenu.setItem(11, teleportItem);
         }
         if (getConfigValue("features.inventory-inspection")) {
             ItemStack inventoryItem = new ItemStack(Material.CHEST);
@@ -372,14 +426,24 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
             inventoryMeta.setDisplayName(ChatColor.AQUA + plugin.getMessage("gui.inspect-inventory", "Inspect Inventory"));
             inventoryItem.setItemMeta(inventoryMeta);
             playerMenu.setItem(14, inventoryItem);
+            ItemStack enderChestItem = new ItemStack(Material.ENDER_CHEST);
+            ItemMeta enderChestMeta = enderChestItem.getItemMeta();
+            enderChestMeta.setDisplayName(ChatColor.DARK_PURPLE + plugin.getMessage("gui.ender-chest", "Inspect Ender Chest"));
+            enderChestItem.setItemMeta(enderChestMeta);
+            playerMenu.setItem(15, enderChestItem);
         }
         if (getConfigValue("features.punishment-system")) {
             ItemStack punishmentsItem = new ItemStack(Material.IRON_SWORD);
             ItemMeta punishmentsMeta = punishmentsItem.getItemMeta();
             punishmentsMeta.setDisplayName(ChatColor.RED + plugin.getMessage("gui.punishments", "Punishments"));
             punishmentsItem.setItemMeta(punishmentsMeta);
-            playerMenu.setItem(16, punishmentsItem);
+            playerMenu.setItem(12, punishmentsItem);
         }
+        ItemStack playerInfoItem = new ItemStack(Material.NAME_TAG);
+        ItemMeta playerInfoMeta = playerInfoItem.getItemMeta();
+        playerInfoMeta.setDisplayName(ChatColor.BLUE + plugin.getMessage("gui.player-info", "Player Info & Actions"));
+        playerInfoItem.setItemMeta(playerInfoMeta);
+        playerMenu.setItem(16, playerInfoItem);
         ItemStack backItem = new ItemStack(Material.ARROW);
         ItemMeta backMeta = backItem.getItemMeta();
         backMeta.setDisplayName(ChatColor.RED + plugin.getMessage("gui.back", "Back"));
@@ -388,6 +452,151 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
         player.openInventory(playerMenu);
         setPlayerMenuTarget(player.getUniqueId(), result);
         setLastOpenedMenu(player.getUniqueId(), "player");
+        setLastTarget(player.getUniqueId(), result.name);
+        plugin.savePlayerMenuState(player);
+    }
+
+    public void openPlayerInfoGUI(Player player, PlayerResult result) {
+        if (!player.hasPermission("playermanager.admin") && !player.hasPermission("playermanager.gui")) {
+            player.sendMessage(ChatColor.RED + plugin.getMessage("error.no-permission", "You don't have permission!"));
+            return;
+        }
+        Inventory playerInfoGUI = Bukkit.createInventory(this, 27, plugin.getMessage("gui.player-info-prefix", "Player Info: ") + ChatColor.YELLOW + result.name);
+        ItemStack headItem = createPlayerHead(result);
+        playerInfoGUI.setItem(4, headItem);
+
+        if (result.online) {
+            Player target = Bukkit.getPlayer(result.name);
+            ItemStack healthItem = new ItemStack(Material.APPLE);
+            ItemMeta healthMeta = healthItem.getItemMeta();
+            healthMeta.setDisplayName(ChatColor.RED + plugin.getMessage("gui.health", "Health"));
+            List<String> healthLore = new ArrayList<>();
+            healthLore.add(ChatColor.GRAY + plugin.getMessage("gui.current-health", "Current Health") + ": " + ChatColor.WHITE + String.format("%.1f/%.1f", target.getHealth(), target.getMaxHealth()));
+            healthMeta.setLore(healthLore);
+            healthItem.setItemMeta(healthMeta);
+            playerInfoGUI.setItem(10, healthItem);
+
+            ItemStack healItem = new ItemStack(Material.GOLDEN_APPLE);
+            ItemMeta healMeta = healItem.getItemMeta();
+            healMeta.setDisplayName(ChatColor.GREEN + plugin.getMessage("gui.heal", "Heal"));
+            healItem.setItemMeta(healMeta);
+            playerInfoGUI.setItem(12, healItem);
+
+            ItemStack killItem = new ItemStack(Material.SKELETON_SKULL);
+            ItemMeta killMeta = killItem.getItemMeta();
+            killMeta.setDisplayName(ChatColor.DARK_RED + plugin.getMessage("gui.kill", "Kill"));
+            killItem.setItemMeta(killMeta);
+            playerInfoGUI.setItem(14, killItem);
+
+            ItemStack statsItem = new ItemStack(Material.PAPER);
+            ItemMeta statsMeta = statsItem.getItemMeta();
+            statsMeta.setDisplayName(ChatColor.YELLOW + plugin.getMessage("gui.stats", "Player Stats"));
+            List<String> statsLore = new ArrayList<>();
+            statsLore.add(ChatColor.GRAY + plugin.getMessage("gui.level", "Level") + ": " + ChatColor.WHITE + target.getLevel());
+            statsLore.add(ChatColor.GRAY + plugin.getMessage("gui.hunger", "Hunger") + ": " + ChatColor.WHITE + target.getFoodLevel() + "/20");
+            statsLore.add(ChatColor.GRAY + plugin.getMessage("gui.health", "Health") + ": " + ChatColor.WHITE + String.format("%.1f/%.1f", target.getHealth(), target.getMaxHealth()));
+            statsLore.add(ChatColor.GRAY + plugin.getMessage("gui.location", "Location") + ": " + ChatColor.WHITE + String.format("X: %.1f, Y: %.1f, Z: %.1f", target.getLocation().getX(), target.getLocation().getY(), target.getLocation().getZ()));
+            statsLore.add(ChatColor.GRAY + plugin.getMessage("gui.gamemode-gui", "Gamemode") + ": " + ChatColor.WHITE + target.getGameMode().toString());
+            statsMeta.setLore(statsLore);
+            statsItem.setItemMeta(statsMeta);
+            playerInfoGUI.setItem(16, statsItem);
+        }
+
+        ItemStack gamemodeItem = new ItemStack(Material.COMMAND_BLOCK);
+        ItemMeta gamemodeMeta = gamemodeItem.getItemMeta();
+        gamemodeMeta.setDisplayName(ChatColor.BLUE + plugin.getMessage("gui.gamemode", "Change Gamemode"));
+        gamemodeItem.setItemMeta(gamemodeMeta);
+        playerInfoGUI.setItem(18, gamemodeItem);
+
+        ItemStack backItem = new ItemStack(Material.ARROW);
+        ItemMeta backMeta = backItem.getItemMeta();
+        backMeta.setDisplayName(ChatColor.RED + plugin.getMessage("gui.back", "Back"));
+        backItem.setItemMeta(backMeta);
+        playerInfoGUI.setItem(22, backItem);
+
+        player.openInventory(playerInfoGUI);
+        setPlayerMenuTarget(player.getUniqueId(), result);
+        setLastOpenedMenu(player.getUniqueId(), "player_info");
+        setLastTarget(player.getUniqueId(), result.name);
+        plugin.savePlayerMenuState(player);
+    }
+
+    public void openGamemodeGUI(Player player, PlayerResult result) {
+        if (!player.hasPermission("playermanager.admin") && !player.hasPermission("playermanager.gui")) {
+            player.sendMessage(ChatColor.RED + plugin.getMessage("error.no-permission", "You don't have permission!"));
+            return;
+        }
+        Inventory gamemodeGUI = Bukkit.createInventory(this, 27, plugin.getMessage("gui.gamemode-prefix", "Change Gamemode: ") + ChatColor.YELLOW + result.name);
+        ItemStack headItem = createPlayerHead(result);
+        gamemodeGUI.setItem(4, headItem);
+
+        ItemStack survivalItem = new ItemStack(Material.GRASS_BLOCK);
+        ItemMeta survivalMeta = survivalItem.getItemMeta();
+        survivalMeta.setDisplayName(ChatColor.GREEN + plugin.getMessage("gui.survival", "Survival"));
+        survivalItem.setItemMeta(survivalMeta);
+        gamemodeGUI.setItem(10, survivalItem);
+
+        ItemStack creativeItem = new ItemStack(Material.DIAMOND);
+        ItemMeta creativeMeta = creativeItem.getItemMeta();
+        creativeMeta.setDisplayName(ChatColor.AQUA + plugin.getMessage("gui.creative", "Creative"));
+        creativeItem.setItemMeta(creativeMeta);
+        gamemodeGUI.setItem(12, creativeItem);
+
+        ItemStack adventureItem = new ItemStack(Material.COMPASS);
+        ItemMeta adventureMeta = adventureItem.getItemMeta();
+        adventureMeta.setDisplayName(ChatColor.YELLOW + plugin.getMessage("gui.adventure", "Adventure"));
+        adventureItem.setItemMeta(adventureMeta);
+        gamemodeGUI.setItem(14, adventureItem);
+
+        ItemStack spectatorItem = new ItemStack(Material.FEATHER);
+        ItemMeta spectatorMeta = spectatorItem.getItemMeta();
+        spectatorMeta.setDisplayName(ChatColor.LIGHT_PURPLE + plugin.getMessage("gui.spectator", "Spectator"));
+        spectatorItem.setItemMeta(spectatorMeta);
+        gamemodeGUI.setItem(16, spectatorItem);
+
+        ItemStack backItem = new ItemStack(Material.ARROW);
+        ItemMeta backMeta = backItem.getItemMeta();
+        backMeta.setDisplayName(ChatColor.RED + plugin.getMessage("gui.back", "Back"));
+        backItem.setItemMeta(backMeta);
+        gamemodeGUI.setItem(22, backItem);
+
+        player.openInventory(gamemodeGUI);
+        setPlayerMenuTarget(player.getUniqueId(), result);
+        setLastOpenedMenu(player.getUniqueId(), "gamemode");
+        setLastTarget(player.getUniqueId(), result.name);
+        plugin.savePlayerMenuState(player);
+    }
+
+    public void openGamemodeConfirmGUI(Player player, PlayerResult result) {
+        if (!player.hasPermission("playermanager.admin") && !player.hasPermission("playermanager.gui")) {
+            player.sendMessage(ChatColor.RED + plugin.getMessage("error.no-permission", "You don't have permission!"));
+            return;
+        }
+        Inventory confirmGUI = Bukkit.createInventory(this, 27, plugin.getMessage("gui.gamemode-confirm-prefix", "Confirm Creative: ") + ChatColor.YELLOW + result.name);
+        ItemStack headItem = createPlayerHead(result);
+        confirmGUI.setItem(4, headItem);
+
+        ItemStack confirmItem = new ItemStack(Material.GREEN_STAINED_GLASS_PANE);
+        ItemMeta confirmMeta = confirmItem.getItemMeta();
+        confirmMeta.setDisplayName(ChatColor.GREEN + plugin.getMessage("gui.confirm", "Confirm"));
+        confirmItem.setItemMeta(confirmMeta);
+        confirmGUI.setItem(11, confirmItem);
+
+        ItemStack cancelItem = new ItemStack(Material.RED_STAINED_GLASS_PANE);
+        ItemMeta cancelMeta = cancelItem.getItemMeta();
+        cancelMeta.setDisplayName(ChatColor.RED + plugin.getMessage("gui.cancel", "Cancel"));
+        cancelItem.setItemMeta(cancelMeta);
+        confirmGUI.setItem(15, cancelItem);
+
+        ItemStack backItem = new ItemStack(Material.ARROW);
+        ItemMeta backMeta = backItem.getItemMeta();
+        backMeta.setDisplayName(ChatColor.RED + plugin.getMessage("gui.back", "Back"));
+        backItem.setItemMeta(backMeta);
+        confirmGUI.setItem(22, backItem);
+
+        player.openInventory(confirmGUI);
+        setPlayerMenuTarget(player.getUniqueId(), result);
+        setLastOpenedMenu(player.getUniqueId(), "gamemode_confirm");
         setLastTarget(player.getUniqueId(), result.name);
         plugin.savePlayerMenuState(player);
     }
@@ -408,12 +617,10 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
         Inventory punishmentGUI = Bukkit.createInventory(this, 27, plugin.getMessage("gui.punishment-prefix", "Punishments: ") + ChatColor.YELLOW + result.name);
         ItemStack headItem = createPlayerHead(result);
         punishmentGUI.setItem(4, headItem);
-
         Material[] materials = {Material.NETHERITE_SWORD, Material.BLAZE_ROD, Material.BOOK, Material.PAPER, Material.GREEN_DYE};
         String[] displayKeys = {"ban", "kick", "warn", "mute", "unban"};
         ChatColor[] colors = {ChatColor.RED, ChatColor.GOLD, ChatColor.YELLOW, ChatColor.GREEN, ChatColor.DARK_GREEN};
         int[] slots = {10, 11, 13, 15, 16};
-
         for (int i = 0; i < 5; i++) {
             ItemStack item = new ItemStack(materials[i]);
             ItemMeta meta = item.getItemMeta();
@@ -421,13 +628,11 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
             item.setItemMeta(meta);
             punishmentGUI.setItem(slots[i], item);
         }
-
         ItemStack backItem = new ItemStack(Material.ARROW);
         ItemMeta backMeta = backItem.getItemMeta();
         backMeta.setDisplayName(ChatColor.RED + plugin.getMessage("gui.back", "Back"));
         backItem.setItemMeta(backMeta);
         punishmentGUI.setItem(22, backItem);
-
         player.openInventory(punishmentGUI);
         setPlayerMenuTarget(player.getUniqueId(), result);
         setLastOpenedMenu(player.getUniqueId(), "punishment");
@@ -437,6 +642,8 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
 
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
+        if (!event.getInventory().equals(inventory)) {
+        }
         if (!(event.getWhoClicked() instanceof Player)) return;
         Player player = (Player) event.getWhoClicked();
         if (event.getInventory().getHolder() != this) return;
@@ -450,6 +657,12 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
             handlePlayerMenuClick(event, player, slot);
         } else if (currentMenu.equals("punishment")) {
             handlePunishmentClick(event, player, slot);
+        } else if (currentMenu.equals("player_info")) {
+            handlePlayerInfoClick(event, player, slot);
+        } else if (currentMenu.equals("gamemode")) {
+            handleGamemodeClick(event, player, slot);
+        } else if (currentMenu.equals("gamemode_confirm")) {
+            handleGamemodeConfirmClick(event, player, slot);
         }
     }
 
@@ -560,7 +773,7 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
             openSearchGUI(player);
             return;
         }
-        if (slot == 12 && getConfigValue("features.player-teleportation")) {
+        if (slot == 11 && getConfigValue("features.player-teleportation")) {
             Player target = Bukkit.getPlayer(result.name);
             if (target == null) {
                 player.sendMessage(ChatColor.RED + plugin.getMessage("error.player-offline", "Player is offline."));
@@ -583,11 +796,30 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
             player.openInventory(target.getInventory());
             return;
         }
-        if (slot == 16 && getConfigValue("features.punishment-system")) {
+        if (slot == 15 && getConfigValue("features.inventory-inspection")) {
+            Player target = Bukkit.getPlayer(result.name);
+            if (target == null) {
+                player.sendMessage(ChatColor.RED + plugin.getMessage("error.player-offline-inventory", "Player is offline, inventory modification is impossible."));
+                return;
+            }
+            player.openInventory(target.getEnderChest());
+            return;
+        }
+        if (slot == 12 && getConfigValue("features.punishment-system")) {
             openPunishmentGUI(player, result);
             return;
         }
+        if (slot == 16) {
+            Player target = Bukkit.getPlayer(result.name);
+            if (target == null) {
+                player.sendMessage(ChatColor.RED + plugin.getMessage("error.player-offline", "Player is offline."));
+                return;
+            }
+            openPlayerInfoGUI(player, result);
+            return;
+        }
     }
+
 
     private void handlePunishmentClick(InventoryClickEvent event, Player player, int slot) {
         PlayerResult result = playerMenuTargets.get(player.getUniqueId());
@@ -649,18 +881,132 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
         event.setCancelled(true);
     }
 
+    private void handlePlayerInfoClick(InventoryClickEvent event, Player player, int slot) {
+        PlayerResult result = playerMenuTargets.get(player.getUniqueId());
+        if (result == null) return;
+        if (slot == 22) {
+            openPlayerMenu(player, result);
+            return;
+        }
+        if (!result.online) {
+            if (slot == 10 || slot == 12 || slot == 14 || slot == 16) {
+                player.sendMessage(ChatColor.RED + plugin.getMessage("error.player-offline", "Player is offline."));
+                return;
+            }
+        }
+        if (slot == 12) {
+            Player target = Bukkit.getPlayer(result.name);
+            if (player.getUniqueId().toString().equals(result.uuid)) {
+                player.sendMessage(ChatColor.RED + plugin.getMessage("error.self-punish", "You can't punish yourself."));
+                return;
+            }
+            Bukkit.dispatchCommand(player, "heal " + result.name);
+            player.sendMessage(ChatColor.YELLOW + plugin.getMessage("action.executed", "Executed: %command% for %player%")
+                    .replace("%command%", "heal")
+                    .replace("%player%", result.name));
+            openPlayerInfoGUI(player, result);
+            return;
+        }
+        if (slot == 14) {
+            Player target = Bukkit.getPlayer(result.name);
+            if (player.getUniqueId().toString().equals(result.uuid)) {
+                player.sendMessage(ChatColor.RED + plugin.getMessage("error.self-punish", "You can't punish yourself."));
+                return;
+            }
+            Bukkit.dispatchCommand(player, "kill " + result.name);
+            player.sendMessage(ChatColor.YELLOW + plugin.getMessage("action.executed", "Executed: %command% for %player%")
+                    .replace("%command%", "kill")
+                    .replace("%player%", result.name));
+            openPlayerInfoGUI(player, result);
+            return;
+        }
+        if (slot == 18) {
+            openGamemodeGUI(player, result);
+            return;
+        }
+    }
+
+    private void handleGamemodeClick(InventoryClickEvent event, Player player, int slot) {
+        PlayerResult result = playerMenuTargets.get(player.getUniqueId());
+        if (result == null) return;
+        if (slot == 22) {
+            openPlayerInfoGUI(player, result);
+            return;
+        }
+        if (!result.online) {
+            player.sendMessage(ChatColor.RED + plugin.getMessage("error.player-offline", "Player is offline."));
+            return;
+        }
+        if (player.getUniqueId().toString().equals(result.uuid)) {
+            player.sendMessage(ChatColor.RED + plugin.getMessage("error.self-punish", "You can't punish yourself."));
+            return;
+        }
+        String gamemode = null;
+        if (slot == 10) {
+            gamemode = "survival";
+        } else if (slot == 12) {
+            openGamemodeConfirmGUI(player, result);
+            return;
+        } else if (slot == 14) {
+            gamemode = "adventure";
+        } else if (slot == 16) {
+            gamemode = "spectator";
+        }
+        if (gamemode != null) {
+            Bukkit.dispatchCommand(player, "gamemode " + gamemode + " " + result.name);
+            player.sendMessage(ChatColor.YELLOW + plugin.getMessage("action.executed", "Executed: %command% for %player%")
+                    .replace("%command%", "gamemode " + gamemode)
+                    .replace("%player%", result.name));
+            openPlayerInfoGUI(player, result);
+        }
+    }
+
+    private void handleGamemodeConfirmClick(InventoryClickEvent event, Player player, int slot) {
+        PlayerResult result = playerMenuTargets.get(player.getUniqueId());
+        if (result == null) return;
+        if (slot == 22) {
+            openGamemodeGUI(player, result);
+            return;
+        }
+        if (slot == 11) {
+            if (!result.online) {
+                player.sendMessage(ChatColor.RED + plugin.getMessage("error.player-offline", "Player is offline."));
+                return;
+            }
+            if (player.getUniqueId().toString().equals(result.uuid)) {
+                player.sendMessage(ChatColor.RED + plugin.getMessage("error.self-punish", "You can't punish yourself."));
+                return;
+            }
+            Bukkit.dispatchCommand(player, "gamemode creative " + result.name);
+            player.sendMessage(ChatColor.YELLOW + plugin.getMessage("action.executed", "Executed: %command% for %player%")
+                    .replace("%command%", "gamemode creative")
+                    .replace("%player%", result.name));
+            openPlayerInfoGUI(player, result);
+            return;
+        }
+        if (slot == 15) {
+            openGamemodeGUI(player, result);
+            return;
+        }
+    }
+
     @EventHandler
     public void onPlayerInteract(PlayerInteractEvent event) {
         Player player = event.getPlayer();
         if (!player.hasPermission("playermanager.admin") && !player.hasPermission("playermanager.gui")) {
             return;
         }
+
+        if (event.getAction() == Action.RIGHT_CLICK_BLOCK || event.getItem() != null) {
+            return;
+        }
+
         boolean punishmentEnabled = getConfigValue("features.punishment-system");
         boolean teleportEnabled = getConfigValue("features.player-teleportation");
         boolean inventoryEnabled = getConfigValue("features.inventory-inspection");
         boolean allFeaturesDisabled = !punishmentEnabled && !teleportEnabled && !inventoryEnabled;
 
-        if (event.getAction().toString().contains("RIGHT_CLICK") && player.isSneaking()) {
+        if (event.getAction() == Action.RIGHT_CLICK_AIR && player.isSneaking()) {
             if (allFeaturesDisabled) {
                 player.sendMessage(ChatColor.RED + plugin.getMessage("error.all-features-disabled", "All features are disabled in config!"));
                 return;
@@ -698,6 +1044,27 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
                         PlayerResult result = playerMenuTargets.get(player.getUniqueId());
                         if (result != null) {
                             openPunishmentGUI(player, result);
+                        } else {
+                            openSearchGUI(player);
+                        }
+                    } else if (currentMenu.equals("player_info")) {
+                        PlayerResult result = playerMenuTargets.get(player.getUniqueId());
+                        if (result != null) {
+                            openPlayerInfoGUI(player, result);
+                        } else {
+                            openSearchGUI(player);
+                        }
+                    } else if (currentMenu.equals("gamemode")) {
+                        PlayerResult result = playerMenuTargets.get(player.getUniqueId());
+                        if (result != null) {
+                            openGamemodeGUI(player, result);
+                        } else {
+                            openSearchGUI(player);
+                        }
+                    } else if (currentMenu.equals("gamemode_confirm")) {
+                        PlayerResult result = playerMenuTargets.get(player.getUniqueId());
+                        if (result != null) {
+                            openGamemodeConfirmGUI(player, result);
                         } else {
                             openSearchGUI(player);
                         }

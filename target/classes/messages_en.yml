@@ -1,4 +1,4 @@
-#English messages for PlayerManager
+# English messages for PlayerManager
 
 gui:
   title: "&6Player Management"
@@ -14,7 +14,27 @@ gui:
   info: "&eInformation"
   teleport: "&aTeleport"
   inspect-inventory: "&bInspect Inventory"
+  ender-chest: "&dInspect Ender Chest"
   punishments: "&cPunishments"
+  player-info: "&9Player Info & Actions"
+  player-info-prefix: "&9Player Info: "
+  health: "&cHealth"
+  current-health: "Current Health"
+  heal: "&aHeal"
+  kill: "&4Kill"
+  stats: "&ePlayer Stats"
+  level: "Level"
+  hunger: "Hunger"
+  location: "Location"
+  gamemode: "&9Change Gamemode"
+  gamemode-prefix: "&9Change Gamemode: "
+  gamemode-confirm-prefix: "&9Confirm Creative: "
+  gamemode-gui: "&9Change Gamemode"
+  survival: "&aSurvival"
+  creative: "&bCreative"
+  adventure: "&eAdventure"
+  spectator: "&dSpectator"
+  confirm: "&aConfirm"
   back: "&cBack"
   uuid: "UUID"
   first-played: "First played"
@@ -27,12 +47,12 @@ gui:
   enter-search: "&eEnter name to search: "
   cancel: "&c[Cancel]"
   punishment-prefix: "&cPunishments: "
-  punishment:
-    ban: "&cBan"
-    kick: "&cKick"
-    warn: "&cWarn"
-    mute: "&cMute"
-    unban: "&aUnban"
+punishment:
+  ban: "&cBan"
+  kick: "&cKick"
+  warn: "&cWarn"
+  mute: "&cMute"
+  unban: "&aUnban"
 filter:
   all: "&eAll Players"
   online: "&aOnline Players"
@@ -54,6 +74,7 @@ error:
   inventory-inspection-disabled: "&cInventory inspection is disabled!"
   punishment-system-disabled: "&cPunishment system is disabled!"
   all-features-disabled: "&cAll features are disabled in config!"
+  cannot-target-admin: "&cYou cannot target another admin."
 command:
   usage: "&cUsage: /playermanager <gui | reload | reset | ban | kick | warn | mute | unban | teleport | inventory>"
   usage-gui: "&cUsage: /playermanager gui"

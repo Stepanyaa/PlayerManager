@@ -55,7 +55,7 @@ public final class PlayerManager extends JavaPlugin implements Listener, Command
     private PlayerSearchGUI playerSearchGUI;
     private String language;
     private static final String MODRINTH_API_URL = "https://api.modrinth.com/v2/project/playermanagers/version";
-    private static final String CURRENT_VERSION = "1.0.3";
+    private static final String CURRENT_VERSION = "1.0.4";
     private String latestVersion = null;
     private final Set<UUID> notifiedAdmins = new HashSet<>();
     private static final String[] SUPPORTED_LANGUAGES = {"en", "ru"};
@@ -77,8 +77,9 @@ public final class PlayerManager extends JavaPlugin implements Listener, Command
             this.playerDataConfig.createSection("players");
             this.savePlayerDataConfig();
         }
-        this.loadMessages();
         this.updateMessagesFiles();
+        this.updateConfigFile();
+        this.loadMessages();
         this.playerSearchGUI = new PlayerSearchGUI(this);
         this.getServer().getPluginManager().registerEvents(this, this);
         this.getServer().getPluginManager().registerEvents(this.playerSearchGUI, this);
@@ -131,7 +132,7 @@ public final class PlayerManager extends JavaPlugin implements Listener, Command
                             int highestPatch = Integer.parseInt(highestParts[2]);
                             if (currentMajor == highestMajor && currentMinor == highestMinor && highestPatch == currentPatch + 1) {
                                 latestVersion = highestVersion;
-                                String consoleMessage = "*** UPDATE AVAILABLE *** A new version of PlayerManager (" + latestVersion + ") is available at https://modrinth.com/plugin/playermanagers";
+                                String consoleMessage = "*** UPDATE AVAILABLE *** A new version of PlayerManager (" + latestVersion + ") is available at https://modrinth.com/plugin/playermanagers/versions";
                                 getLogger().info(consoleMessage);
                             }
                         }
@@ -144,35 +145,56 @@ public final class PlayerManager extends JavaPlugin implements Listener, Command
         });
     }
     private void updateMessagesFiles() {
-        String lastKnownVersion = getConfig().getString("messages-version", "");
-        boolean needsUpdate = !lastKnownVersion.equals(CURRENT_VERSION);
+        for (String lang : SUPPORTED_LANGUAGES) {
+            String fileName = "messages_" + lang + ".yml";
+            File messageFile = new File(getDataFolder(), fileName);
+            YamlConfiguration existingConfig = messageFile.exists() ?
+                    YamlConfiguration.loadConfiguration(messageFile) : new YamlConfiguration();
 
-        if (needsUpdate) {
-            getLogger().info("Updating messages files to version " + CURRENT_VERSION);
+            String currentFileVersion = existingConfig.getString("version", "0.0.0");
 
-            for (String lang : SUPPORTED_LANGUAGES) {
-                String fileName = "messages_" + lang + ".yml";
-                File messageFile = new File(getDataFolder(), fileName);
-
-                if (messageFile.exists()) {
-                    File backupFile = new File(getDataFolder(), fileName + ".backup");
-                    try {
-                        java.nio.file.Files.copy(messageFile.toPath(), backupFile.toPath(),
-                                java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-                        getLogger().info("Created backup of " + fileName);
-                    } catch (IOException e) {
-                        getLogger().warning("Failed to create backup of " + fileName + ": " + e.getMessage());
-                    }
-                }
-
-                saveResource(fileName, true);
-                getLogger().info("Updated " + fileName);
+            if (currentFileVersion.equals(CURRENT_VERSION)) {
+                getLogger().info("Messages file " + fileName + " is up-to-date (version " + CURRENT_VERSION + ")");
+                continue;
             }
 
-            getConfig().set("messages-version", CURRENT_VERSION);
-            saveConfig();
+            if (getResource(fileName) != null) {
+                try {
+                    saveResource(fileName, true);
+                    getLogger().info("Replaced " + fileName + " with new version " + CURRENT_VERSION);
+                } catch (Exception e) {
+                    getLogger().warning("Failed to replace " + fileName + ": " + e.getMessage());
+                }
+            } else {
+                getLogger().warning("Resource " + fileName + " not found in plugin");
+            }
         }
     }
+
+    private void updateConfigFile() {
+        File configFile = new File(getDataFolder(), "config.yml");
+        YamlConfiguration existingConfig = configFile.exists() ?
+                YamlConfiguration.loadConfiguration(configFile) : new YamlConfiguration();
+
+        String currentFileVersion = existingConfig.getString("config-version", "0.0.0");
+
+        if (currentFileVersion.equals(CURRENT_VERSION)) {
+            getLogger().info("Config file config.yml is up-to-date (version " + CURRENT_VERSION + ")");
+            return;
+        }
+
+        if (getResource("config.yml") != null) {
+            try {
+                saveResource("config.yml", true);
+                getLogger().info("Replaced config.yml with new version " + CURRENT_VERSION);
+            } catch (Exception e) {
+                getLogger().warning("Failed to replace config.yml: " + e.getMessage());
+            }
+        } else {
+            getLogger().warning("Resource config.yml not found in plugin");
+        }
+    }
+
     private boolean isNewerVersion(String newVersion, String currentVersion) {
         try {
             String cleanNewVersion = newVersion.replace("-SNAPSHOT", "");
@@ -410,7 +432,7 @@ public final class PlayerManager extends JavaPlugin implements Listener, Command
             this.savePlayerDataConfig();
         }
         if (latestVersion != null && (player.hasPermission("playermanager.admin") || player.hasPermission("playermanager.updates")) && !notifiedAdmins.contains(player.getUniqueId())) {
-            String playerMessage = ChatColor.YELLOW + "" + ChatColor.BOLD + getMessage("update.available", "A new version of PlayerManager (%version%) is available at https://modrinth.com/plugin/playermanagers")
+            String playerMessage = ChatColor.YELLOW + "" + ChatColor.BOLD + getMessage("update.available", "A new version of PlayerManager (%version%) is available at https://modrinth.com/plugin/playermanagers/versions")
                     .replace("%version%", latestVersion);
             notifiedAdmins.add(player.getUniqueId());
             Bukkit.getScheduler().runTaskLater(this, () -> player.sendMessage(playerMessage), 20L);
@@ -632,6 +654,8 @@ public final class PlayerManager extends JavaPlugin implements Listener, Command
     private void reloadPlugin(Player player) {
         this.reloadConfig();
         this.language = getConfig().getString("language", "en");
+        this.updateConfigFile();
+        this.updateMessagesFiles();
         this.loadMessages();
         for (Player p : Bukkit.getOnlinePlayers()) {
             this.loadPlayerMenuState(p);

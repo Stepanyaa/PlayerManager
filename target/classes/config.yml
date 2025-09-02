@@ -6,4 +6,6 @@ language: en
 features:
   player-teleportation: true
   inventory-inspection: true
+  ender-chest-inspection: true
   punishment-system: true
+  player-info-actions: true

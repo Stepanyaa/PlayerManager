@@ -1,6 +1,9 @@
 # Language for messages (e.g., 'en' for English, 'ru' for Russian)
 # If you want to help translate PlayerManager into your language Join our Discord https://discord.gg/72mzBTckKC and check the #translations channel
-language: en
+
+# Plugin info
+config-version: "1.0.5"
+language: "en"
 
 # Feature toggles
 features:

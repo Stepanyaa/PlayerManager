@@ -55,6 +55,10 @@ gui:
   cancel: "&c[Cancel]"
   punishment-prefix: "&cPunishments: "
   jail-prefix: "&cJail: "
+  mute-duration-title: "Mute Duration: "
+  warn-duration-title: "Warn Duration: "
+  mute-reason-title: "Mute Reason: "
+  warn-reason-title: "Warn Reason: "
 punishment:
   ban: "&cBan"
   kick: "&cKick"
@@ -85,6 +89,8 @@ error:
   player-info-actions-disabled: "Player Info & Actions is disabled in config!"
   all-features-disabled: "&cAll features are disabled in config!"
   cannot-target-admin: "&cYou cannot target another admin."
+  invalid-duration: "Invalid duration format! Use e.g., 1h, 2d, permanent"
+  invalid-reason: "Reason cannot be empty!"
 command:
   usage: "&cUsage: /playermanager <gui | reload | reset | ban | kick | warn | mute | unban | teleport | inventory>"
   usage-gui: "&cUsage: /playermanager gui"
@@ -96,8 +102,25 @@ action:
   executed: "&eExecuted: %command% for %player%"
   teleported: "&aTeleported to %player%"
   click-to-copy: "Click to copy"
+  enter-duration: "Enter duration in chat (e.g., 2d, 5h, permanent)"
+  enter-reason: "Enter reason:"
+
 update:
   available: "&eA new version of PlayerManager (%version%) is available at https://modrinth.com/plugin/playermanagers/versions"
+warning:
+  max-inactivity-too-high: "Warning: max-inactivity-days (%days%) is set too high! Recommended maximum is 365 days."
+  messages-file-up-to-date: "Messages file %file% is up-to-date (version %version%)."
+  messages-file-updated: "Updated messages file %file% to version %version%."
+  messages-file-not-found: "Messages file %file% not found in plugin!"
+  messages-file-create: "Created messages file: %file%"
+  config-file-up-to-date: "Config file config.yml is up-to-date (version %version%)."
+  config-file-updated: "Updated config.yml to version %version%."
+  config-file-not-found: "Resource config.yml not found in plugin!"
+  config-file-create: "Created config file: config.yml"
+  player-data-cannot-write: "Cannot write to player_data.yml! Check file permissions in %path%."
+  player-data-deleted: "Removed player data for UUID %uuid% due to inactivity."
+  command-register-fail: "Failed to register command 'playermanager'!"
+  plugin-enabled: "PlayerManager enabled with language: %lang%"
 status:
   online: "&aOnline"
   offline: "&cOffline"
@@ -108,3 +131,34 @@ time:
   minutes-ago: "minutes ago"
   hours-ago: "hours ago"
   days-ago: "days ago"
+mute:
+  duration:
+    1m: "1 Minute"
+    5m: "5 Minutes"
+    10m: "10 Minutes"
+    30m: "30 Minutes"
+    1h: "1 Hour"
+    permanent: "Permanent"
+    custom: "Custom"
+  reason:
+   insult: "Insult"
+   spam_flood: "Spam/Flood"
+   advertising: "Advertising"
+   conflict_incitement: "Conflict Incitement"
+   cyberbullying: "Cyberbullying"
+   custom: "Custom"
+warn:
+  duration:
+    1m: "1 Minute"
+    5m: "5 Minutes"
+    10m: "10 Minutes"
+    30m: "30 Minutes"
+    1h: "1 Hour"
+    permanent: "Permanent"
+    custom: "Custom"
+  reason:
+    griefing: "Griefing"
+    disrespect_staff: "Disrespect to Staff"
+    chat_rule_violation: "Chat Rule Violation"
+    private_message_advertising: "Private Message Advertising"
+    custom: "Custom Reason"

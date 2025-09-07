@@ -1,5 +1,5 @@
 name: PlayerManager
-version: 1.0.4
+version: 1.0.5
 main: ru.stepanyaa.playerManager.PlayerManager
 license: MIT
 folia-supported: false
@@ -24,6 +24,7 @@ permissions:
    playermanager.teleport: true
    playermanager.inventory: true
    playermanager.updates: true
+   playermanager.gamemode: true
  playermanager.gui:
   description: Allows access to the PlayerManager GUI
   default: op
@@ -58,4 +59,7 @@ permissions:
   default: op
  playermanager.updates:
   description: Allows receiving update notifications for PlayerManager
+  default: op
+ playermanager.gamemode:
+  description: Allows gamemode gui using PlayerManager
   default: op

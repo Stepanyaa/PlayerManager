@@ -30,6 +30,7 @@ import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.*;
+import java.util.function.BiConsumer;
 import java.util.stream.Collectors;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -57,18 +58,24 @@ public class PlayerManager extends JavaPlugin implements Listener, CommandExecut
     private PlayerSearchGUI playerSearchGUI;
     private String language;
     private static final String MODRINTH_API_URL = "https://api.modrinth.com/v2/project/playermanagers/version";
-    private static final String CURRENT_VERSION = "1.0.5";
+    private static final String CURRENT_VERSION = "1.0.6";
     private String latestVersion = null;
     private final Set<UUID> notifiedAdmins = new HashSet<>();
     private static final String[] SUPPORTED_LANGUAGES = {"en", "ru"};
     private final List<String> cachedPlayerNames = new ArrayList<>();
     private final Set<String> adminUUIDs = new HashSet<>();
+    public final Map<UUID, BiConsumer<String, Player>> pendingActions = new HashMap<>();
+    private boolean isFirstEnable = true;
 
     @Override
     public void onEnable() {
         this.saveDefaultConfig();
         this.reloadConfig();
         this.language = getConfig().getString("language", "en");
+        if (!Arrays.asList(SUPPORTED_LANGUAGES).contains(this.language)) {
+            getLogger().warning("Unsupported language '" + this.language + "' in config.yml, defaulting to 'en'");
+            this.language = "en";
+        }
         this.playerDataFile = new File(this.getDataFolder(), "player_data.yml");
         if (!this.playerDataFile.exists()) {
             this.playerDataFile.getParentFile().mkdirs();
@@ -121,6 +128,8 @@ public class PlayerManager extends JavaPlugin implements Listener, CommandExecut
         schedulePlayerDataCleanup();
         getLogger().info(getMessage("warning.plugin-enabled", "PlayerManager enabled with language: %lang%")
                 .replace("%lang%", language));
+
+        this.isFirstEnable = false;
     }
 
     private void schedulePlayerDataCleanup() {
@@ -200,9 +209,11 @@ public class PlayerManager extends JavaPlugin implements Listener, CommandExecut
             YamlConfiguration existingConfig = YamlConfiguration.loadConfiguration(messageFile);
             String currentFileVersion = existingConfig.getString("version", "0.0.0");
             if (currentFileVersion.equals(CURRENT_VERSION)) {
-                getLogger().info(getMessage("warning.messages-file-up-to-date", "Messages file %file% is up-to-date (version %version%).")
-                        .replace("%file%", fileName)
-                        .replace("%version%", CURRENT_VERSION));
+                if (isFirstEnable) {
+                    getLogger().info(getMessage("warning.messages-file-up-to-date", "Messages file %file% is up-to-date (version %version%).")
+                            .replace("%file%", fileName)
+                            .replace("%version%", CURRENT_VERSION));
+                }
                 continue;
             }
             if (getResource(fileName) != null) {
@@ -233,8 +244,10 @@ public class PlayerManager extends JavaPlugin implements Listener, CommandExecut
         YamlConfiguration existingConfig = YamlConfiguration.loadConfiguration(configFile);
         String currentFileVersion = existingConfig.getString("config-version", "0.0.0");
         if (currentFileVersion.equals(CURRENT_VERSION)) {
-            getLogger().info(getMessage("warning.config-file-up-to-date", "Config file config.yml is up-to-date (version %version%).")
-                    .replace("%version%", CURRENT_VERSION));
+            if (isFirstEnable) {
+                getLogger().info(getMessage("warning.config-file-up-to-date", "Config file config.yml is up-to-date (version %version%).")
+                        .replace("%version%", CURRENT_VERSION));
+            }
             return;
         }
         if (getResource("config.yml") != null) {
@@ -395,57 +408,42 @@ public class PlayerManager extends JavaPlugin implements Listener, CommandExecut
                 sender.hasPermission("playermanager.inventory");
     }
 
-    public void onDisable() {
-        this.saveAllPlayerMenuStates();
-        notifiedAdmins.clear();
-        getLogger().info("PlayerManager disabled");
-    }
-
     private void loadMessages() {
         String messagesFileName = "messages_" + language + ".yml";
-        this.messagesFile = new File(this.getDataFolder(), messagesFileName);
-        if (!this.messagesFile.exists()) {
-            if (getResource(messagesFileName) != null) {
-                this.saveResource(messagesFileName, false);
-                getLogger().info("Created messages file: " + messagesFileName);
-            } else {
-                getLogger().warning("Messages file for language '" + language + "' not found, falling back to English");
-                messagesFileName = "messages_en.yml";
-                this.messagesFile = new File(this.getDataFolder(), messagesFileName);
-                if (!this.messagesFile.exists() && getResource(messagesFileName) != null) {
-                    this.saveResource(messagesFileName, false);
-                }
-            }
-        }
+        messagesFile = new File(getDataFolder(), messagesFileName);
         try {
-            this.messagesConfig = YamlConfiguration.loadConfiguration(this.messagesFile);
-            if (this.messagesConfig == null) {
-                getLogger().warning("Failed to load messages file, initializing empty config");
-                this.messagesConfig = new YamlConfiguration();
+            if (!messagesFile.exists()) {
+                if (getResource(messagesFileName) != null) {
+                    saveResource(messagesFileName, false);
+                    getLogger().info("Created messages file: " + messagesFileName);
+                } else {
+                    getLogger().warning("Messages file " + messagesFileName + " not found in plugin!");
+                    messagesConfig = new YamlConfiguration();
+                    return;
+                }
             }
-            if (getResource(messagesFileName) != null) {
-                YamlConfiguration defaultConfig = YamlConfiguration.loadConfiguration(
-                        new InputStreamReader(Objects.requireNonNull(getResource(messagesFileName))));
-                boolean needsSave = false;
-                for (String key : defaultConfig.getKeys(true)) {
-                    if (!messagesConfig.contains(key)) {
-                        messagesConfig.set(key, defaultConfig.get(key));
-                        needsSave = true;
-                        getLogger().info("Added missing key to messages: " + key);
+            messagesConfig = YamlConfiguration.loadConfiguration(messagesFile);
+            String currentFileVersion = messagesConfig.getString("version", "0.0.0");
+            if (!currentFileVersion.equals(CURRENT_VERSION)) {
+                if (getResource(messagesFileName) != null) {
+                    File backupFile = new File(getDataFolder(), messagesFileName + ".backup");
+                    if (messagesFile.renameTo(backupFile)) {
+                        getLogger().info("Backed up old messages file to: " + messagesFileName + ".backup");
                     }
+                    saveResource(messagesFileName, true);
+                    messagesConfig = YamlConfiguration.loadConfiguration(messagesFile);
+                    messagesConfig.set("version", CURRENT_VERSION);
+                    messagesConfig.save(messagesFile);
+                    getLogger().info("Updated messages file " + messagesFileName + " to version " + CURRENT_VERSION);
+                } else {
+                    getLogger().warning("Resource " + messagesFileName + " not found in plugin!");
                 }
-                if (needsSave) {
-                    try {
-                        messagesConfig.save(messagesFile);
-                        getLogger().info("Updated messages file with missing keys: " + messagesFileName);
-                    } catch (IOException e) {
-                        getLogger().warning("Failed to save updated messages file: " + e.getMessage());
-                    }
-                }
+            } else if (isFirstEnable) {
+                getLogger().info("Messages file " + messagesFileName + " is up-to-date (version " + CURRENT_VERSION + ").");
             }
         } catch (Exception e) {
             getLogger().severe("Failed to load messages file: " + e.getMessage());
-            this.messagesConfig = new YamlConfiguration();
+            messagesConfig = new YamlConfiguration();
         }
     }
 
@@ -513,6 +511,7 @@ public class PlayerManager extends JavaPlugin implements Listener, CommandExecut
         }
         this.playerDataConfig.set(path + "last_login", System.currentTimeMillis());
         this.playerDataConfig.set(path + "name", player.getName());
+        this.playerDataConfig.set(path + "ip", player.getAddress().getAddress().getHostAddress());
         boolean storedBanned = this.playerDataConfig.getBoolean(path + "banned", false);
         boolean isBanned = player.isBanned();
         if (storedBanned != isBanned) {
@@ -788,6 +787,10 @@ public class PlayerManager extends JavaPlugin implements Listener, CommandExecut
     private void reloadPlugin(Player player) {
         this.reloadConfig();
         this.language = getConfig().getString("language", "en");
+        if (!Arrays.asList(SUPPORTED_LANGUAGES).contains(this.language)) {
+            getLogger().warning("Unsupported language '" + this.language + "' in config.yml, defaulting to 'en'");
+            this.language = "en";
+        }
         this.updateConfigFile();
         this.updateMessagesFiles();
         this.loadMessages();
@@ -813,5 +816,11 @@ public class PlayerManager extends JavaPlugin implements Listener, CommandExecut
 
     public String getLanguage() {
         return language;
+    }
+
+    public void updatePlayerBanStatus(String uuid, boolean banned) {
+        String path = "players." + uuid + ".banned";
+        playerDataConfig.set(path, banned);
+        savePlayerDataConfig();
     }
 }

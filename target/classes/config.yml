@@ -12,3 +12,5 @@ features:
   ender-chest-inspection: true
   punishment-system: true
   player-info-actions: true
+  #New
+  ip-search: true

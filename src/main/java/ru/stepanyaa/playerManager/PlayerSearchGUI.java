@@ -27,10 +27,9 @@ package ru.stepanyaa.playerManager;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
-import org.bukkit.Material;
-import org.bukkit.OfflinePlayer;
+
+import org.bukkit.*;
+import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -55,8 +54,11 @@ import com.mojang.authlib.GameProfile;
 import com.mojang.authlib.properties.Property;
 import org.bukkit.scheduler.BukkitRunnable;
 
+import static jdk.tools.jlink.internal.plugins.PluginsResourceBundle.getMessage;
+
 public class PlayerSearchGUI implements Listener, InventoryHolder {
     private final PlayerManager plugin;
+    private final PlayerManagerIpGUI ipGUI;
     private Inventory inventory;
     private final Map<Integer, PlayerResult> slotMap = new ConcurrentHashMap<>();
     private int currentPage = 0;
@@ -70,11 +72,14 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
     private final Map<UUID, Integer> lastPage;
     private final Map<UUID, String> lastTarget;
 
+
     @FunctionalInterface
     interface ChatAction {
         void execute(String message, Player player);
     }
+
     private List<PlayerResult> cachedResults = new ArrayList<>();
+    private List<PlayerResult> unfilteredResults = new ArrayList<>();
 
     public PlayerSearchGUI(PlayerManager plugin) {
         this.currentFilter = Filter.ALL;
@@ -88,6 +93,7 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
         this.lastTarget = new ConcurrentHashMap<>();
         this.plugin = plugin;
         this.inventory = Bukkit.createInventory(this, 54, plugin.getMessage("gui.title", "Player Management"));
+        this.ipGUI = new PlayerManagerIpGUI(plugin, this);
     }
 
     public void openLastGUIMenu(Player admin) {
@@ -128,6 +134,26 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
                 openGamemodeConfirmGUI(admin, result);
                 return;
             }
+            openSearchGUI(admin);
+        } else if (lastMenu.equals("ban_type") && lastTargetName != null) {
+            PlayerResult result = getPlayerResultByName(lastTargetName);
+            if (result != null) {
+                openBanTypeGUI(admin, result);
+                return;
+            }
+        } else if (lastMenu.equals("ban_duration") && lastTargetName != null) {
+            PlayerResult result = getPlayerResultByName(lastTargetName);
+            if (result != null) {
+                openBanDurationGUI(admin, result);
+                return;
+            }
+        } else if (lastMenu.equals("ban_reason") && lastTargetName != null) {
+            PlayerResult result = getPlayerResultByName(lastTargetName);
+            if (result != null) {
+                String duration = plugin.getPlayerDataConfig().getString("players." + result.uuid + ".pending_ban_duration", "permanent");
+                openBanReasonGUI(admin, result, duration);
+                return;
+            }
         }
         openSearchGUI(admin);
     }
@@ -137,24 +163,61 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
             admin.sendMessage(ChatColor.RED + plugin.getMessage("error.no-permission", "You don't have permission!"));
             return;
         }
+
+        this.currentSearch = "";
+        this.currentFilter = Filter.ALL;
+        this.currentPage = 0;
+        this.cachedResults.clear();
+        this.unfilteredResults.clear();
+
         this.inventory = Bukkit.createInventory(this, 54, plugin.getMessage("gui.title", "Player Management"));
         ItemStack loadingItem = new ItemStack(Material.REDSTONE);
         ItemMeta loadingMeta = loadingItem.getItemMeta();
         if (loadingMeta != null) {
             loadingMeta.setDisplayName(ChatColor.YELLOW + plugin.getMessage("gui.loading", "Loading..."));
+            List<String> lore = new ArrayList<>();
+            lore.add(ChatColor.GRAY + "Please wait...");
+            loadingMeta.setLore(lore);
             loadingItem.setItemMeta(loadingMeta);
         }
         this.inventory.setItem(4, loadingItem);
+
         admin.openInventory(this.inventory);
         this.playersInGUI.add(admin.getUniqueId());
         setLastOpenedMenu(admin.getUniqueId(), "search");
         plugin.savePlayerMenuState(admin);
+
+        BukkitRunnable loadingAnimation = new BukkitRunnable() {
+            int dots = 0;
+            @Override
+            public void run() {
+                if (!admin.isOnline() || !playersInGUI.contains(admin.getUniqueId())) {
+                    cancel();
+                    return;
+                }
+                dots = (dots + 1) % 4;
+                StringBuilder dotString = new StringBuilder(ChatColor.YELLOW + plugin.getMessage("gui.loading", "Loading"));
+                for (int i = 0; i < dots; i++) dotString.append(".");
+                ItemMeta meta = loadingItem.getItemMeta();
+                if (meta != null) {
+                    meta.setDisplayName(dotString.toString());
+                    loadingItem.setItemMeta(meta);
+                }
+                inventory.setItem(4, loadingItem);
+                admin.updateInventory();
+            }
+        };
+        loadingAnimation.runTaskTimer(plugin, 0L, 10L);
+
         Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
-            List<PlayerResult> results = getSearchResults(admin, currentSearch);
+            List<PlayerResult> results = getSearchResults(admin, "");
             Bukkit.getScheduler().runTask(plugin, () -> {
                 if (admin.isOnline() && playersInGUI.contains(admin.getUniqueId())) {
+                    loadingAnimation.cancel();
                     setupSearchGUI(admin, results);
                     admin.updateInventory();
+                } else {
+                    loadingAnimation.cancel();
                 }
             });
         });
@@ -238,11 +301,42 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
 
         return "";
     }
+
     private long lastTextureRequestTime = 100000;
 
-    private void setupSearchGUI(Player admin, List<PlayerResult> results) {
+    public void setupSearchGUI(Player player, List<PlayerResult> results) {
         this.inventory.clear();
         this.slotMap.clear();
+
+        if (results.isEmpty()) {
+            ItemStack noResultsItem = new ItemStack(Material.BARRIER);
+            ItemMeta meta = noResultsItem.getItemMeta();
+            if (meta != null) {
+                meta.setDisplayName(ChatColor.RED + plugin.getMessage("gui.no-results", "No players found"));
+                List<String> lore = new ArrayList<>();
+                lore.add(ChatColor.GRAY + "Try changing the search query or filter");
+                meta.setLore(lore);
+                noResultsItem.setItemMeta(meta);
+            }
+            this.inventory.setItem(22, noResultsItem);
+        }
+
+        if (player.hasPermission("playermanager.ip-search")) {
+            if (plugin.getConfig().getBoolean("features.ip-search", true)) {
+                ItemStack ipSearchItem = new ItemStack(Material.PAPER);
+                ItemMeta ipSearchMeta = ipSearchItem.getItemMeta();
+                if (ipSearchMeta != null) {
+                    ipSearchMeta.setDisplayName(ChatColor.GREEN + plugin.getMessage("gui.ip-search", "IP Search"));
+                    List<String> ipSearchLore = new ArrayList<>();
+                    ipSearchLore.add(ChatColor.GRAY + plugin.getMessage("gui.ip-search-hint", "Left click: Search by IP"));
+                    ipSearchMeta.setLore(ipSearchLore);
+                    ipSearchItem.setItemMeta(ipSearchMeta);
+                }
+                this.inventory.setItem(1, ipSearchItem);
+            } else {
+                plugin.getLogger().info("IP search feature is disabled in config.");
+            }
+        }
 
         this.inventory.setItem(47, createFilterItem(Filter.ALL));
         this.inventory.setItem(48, createFilterItem(Filter.ONLINE));
@@ -256,7 +350,7 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
         if (searchMeta != null) {
             searchMeta.setDisplayName(ChatColor.YELLOW + searchText);
             List<String> searchLore = new ArrayList<>();
-            searchLore.add(plugin.getMessage("gui.search-hint", "&7Left click: Enter query | Right click: Reset search"));
+            searchLore.add(ChatColor.GRAY + plugin.getMessage("gui.search-hint", "Left click: Enter query | Right click: Reset search"));
             searchMeta.setLore(searchLore);
             searchItem.setItemMeta(searchMeta);
         }
@@ -337,57 +431,88 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
         }
     }
 
-    private List<PlayerResult> getSearchResults(Player admin, String search) {
-        if (cachedResults != null && search.equals(currentSearch) && !cachedResults.isEmpty()) {
-            return new ArrayList<>(cachedResults);
-        }
+    public void setCurrentSearch(String search) {
+        this.currentSearch = search;
+    }
 
+    public void setCurrentPage(int page) {
+        this.currentPage = page;
+    }
+
+    public void setLastPage(UUID playerId, int page) {
+        this.lastPage.put(playerId, page);
+    }
+
+    public void setCachedResults(List<PlayerResult> results) {
+        this.cachedResults = new ArrayList<>(results);
+        this.unfilteredResults = new ArrayList<>(results);
+    }
+
+
+    private List<PlayerResult> getSearchResults(Player admin, String search) {
         List<PlayerResult> results = new ArrayList<>();
         String searchLower = search.toLowerCase().trim();
 
-        for (OfflinePlayer offlinePlayer : Bukkit.getOfflinePlayers()) {
-            if (offlinePlayer.getName() == null || plugin.isAdminPlayer(offlinePlayer)) {
-                continue;
-            }
-
-            String name = offlinePlayer.getName();
-            String nameLower = name.toLowerCase();
-            String uuidStr = offlinePlayer.getUniqueId().toString();
-            if (!searchLower.isEmpty() && !nameLower.contains(searchLower) && !nameLower.matches(".*" + searchLower + ".*")) {
-                continue;
-            }
-
-            String path = "players." + uuidStr + ".";
-            PlayerResult result = new PlayerResult();
-            result.uuid = uuidStr;
-            result.name = name;
-            result.firstPlayed = plugin.getPlayerDataConfig().getLong(path + "first_played", offlinePlayer.getFirstPlayed());
-            result.lastLogin = plugin.getPlayerDataConfig().getLong(path + "last_login", offlinePlayer.getFirstPlayed());
-            result.lastLogout = plugin.getPlayerDataConfig().getLong(path + "last_logout", offlinePlayer.getLastPlayed());
-            result.online = offlinePlayer.isOnline();
-            result.banned = offlinePlayer.isBanned();
-            boolean needsSave = false;
-
-            boolean storedBanned = plugin.getPlayerDataConfig().getBoolean(path + "banned", false);
-            if (storedBanned != result.banned) {
-                plugin.getPlayerDataConfig().set(path + "banned", result.banned);
-                needsSave = true;
-            }
-
-            result.headTexture = plugin.getPlayerDataConfig().getString(path + "head_texture", "");
-            if (result.headTexture.isEmpty()) {
-                String newTexture = fetchHeadTexture(offlinePlayer);
-                if (!newTexture.isEmpty()) {
-                    result.headTexture = newTexture;
-                    plugin.getPlayerDataConfig().set(path + "head_texture", result.headTexture);
-                    needsSave = true;
+        ConfigurationSection playersSection = plugin.getPlayerDataConfig().getConfigurationSection("players");
+        if (playersSection == null) {
+            plugin.getLogger().warning("No players section in player_data.yml, creating new section");
+            plugin.getPlayerDataConfig().createSection("players");
+            plugin.savePlayerDataConfig();
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                if (admin.isOnline() && playersInGUI.contains(admin.getUniqueId())) {
+                    admin.sendMessage(ChatColor.RED + plugin.getMessage("error.no-players-data", "No player data available!"));
+                    ItemStack noResultsItem = new ItemStack(Material.BARRIER);
+                    ItemMeta meta = noResultsItem.getItemMeta();
+                    if (meta != null) {
+                        meta.setDisplayName(ChatColor.RED + plugin.getMessage("gui.no-results", "No players found"));
+                        noResultsItem.setItemMeta(meta);
+                    }
+                    inventory.setItem(22, noResultsItem);
+                    admin.updateInventory();
                 }
-            }
+            });
+            return results;
+        }
 
-            if (needsSave) {
-                plugin.savePlayerDataConfig();
-            }
+        for (String uuid : playersSection.getKeys(false)) {
+            try {
+                String name = plugin.getPlayerDataConfig().getString("players." + uuid + ".name", "");
+                if (name.isEmpty() || (!searchLower.isEmpty() && !name.toLowerCase().contains(searchLower))) {
+                    continue;
+                }
 
+                OfflinePlayer offlinePlayer = Bukkit.getOfflinePlayer(UUID.fromString(uuid));
+                if (plugin.isAdminPlayer(offlinePlayer)) {
+                    continue;
+                }
+
+                String path = "players." + uuid + ".";
+                PlayerResult result = new PlayerResult();
+                result.uuid = uuid;
+                result.name = name;
+                result.firstPlayed = plugin.getPlayerDataConfig().getLong(path + "first_played", offlinePlayer.getFirstPlayed());
+                result.lastLogin = plugin.getPlayerDataConfig().getLong(path + "last_login", offlinePlayer.getLastPlayed());
+                result.lastLogout = plugin.getPlayerDataConfig().getLong(path + "last_logout", offlinePlayer.getLastPlayed());
+                result.online = offlinePlayer.isOnline();
+                result.banned = Bukkit.getBanList(BanList.Type.NAME).isBanned(name);
+                plugin.updatePlayerBanStatus(uuid, result.banned);
+                result.headTexture = plugin.getPlayerDataConfig().getString(path + "head_texture", "");
+                if (result.headTexture.isEmpty()) {
+                    String newTexture = fetchHeadTexture(offlinePlayer);
+                    if (!newTexture.isEmpty()) {
+                        result.headTexture = newTexture;
+                        plugin.getPlayerDataConfig().set(path + "head_texture", newTexture);
+                        plugin.savePlayerDataConfig();
+                    }
+                }
+                results.add(result);
+            } catch (Exception e) {
+                plugin.getLogger().warning("Error processing player UUID " + uuid + ": " + e.getMessage());
+            }
+        }
+
+        List<PlayerResult> filteredResults = new ArrayList<>();
+        for (PlayerResult result : results) {
             switch (currentFilter) {
                 case ONLINE:
                     if (!result.online) continue;
@@ -401,13 +526,17 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
                 default:
                     break;
             }
-            results.add(result);
+            filteredResults.add(result);
         }
 
-        results.sort(Comparator.comparing(r -> r.name.toLowerCase()));
-        cachedResults = new ArrayList<>(results);
-        return results;
+        filteredResults.sort(Comparator.comparing(r -> r.name.toLowerCase()));
+        cachedResults = new ArrayList<>(filteredResults);
+        unfilteredResults = new ArrayList<>(results);
+        currentSearch = searchLower;
+
+        return filteredResults;
     }
+
 
     private ItemStack createPlayerHead(PlayerResult result) {
         UUID playerUUID = UUID.fromString(result.uuid);
@@ -687,63 +816,105 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
     }
 
     private void openPunishmentGUI(Player player, PlayerResult result) {
-        if (!getConfigValue("features.punishment-system")) {
-            player.sendMessage(ChatColor.RED + plugin.getMessage("error.punishment-system-disabled", "Punishment system is disabled!"));
+        if (!player.hasPermission("playermanager.admin") && !player.hasPermission("playermanager.gui") && !player.hasPermission("playermanager.punishment")) {
+            player.sendMessage(ChatColor.RED + plugin.getMessage("error.no-permission", "You don't have permission!"));
             return;
         }
-        if (!player.hasPermission("playermanager.admin") && !player.hasPermission("playermanager.gui")) {
-            player.sendMessage(ChatColor.RED + plugin.getMessage("error.no-permission", "You don't have permission!"));
+        if (!getConfigValue("features.punishment-system")) {
+            player.sendMessage(ChatColor.RED + plugin.getMessage("error.punishment-system-disabled", "Punishment system is disabled in config!"));
             return;
         }
         if (player.getUniqueId().toString().equals(result.uuid)) {
             player.sendMessage(ChatColor.RED + plugin.getMessage("error.self-punish", "You can't punish yourself."));
             return;
         }
-
-        this.inventory = Bukkit.createInventory(this, 27, plugin.getMessage("gui.punishment-prefix", "Punishments: ") + result.name);
-
+        if (plugin.isAdminPlayer(Bukkit.getOfflinePlayer(UUID.fromString(result.uuid)))) {
+            player.sendMessage(ChatColor.RED + plugin.getMessage("error.cannot-target-admin", "You cannot target another admin."));
+            return;
+        }
+        Inventory punishmentGUI = Bukkit.createInventory(this, 27, plugin.getMessage("gui.punishment-prefix", "Punishments: ") + ChatColor.YELLOW + result.name);
         ItemStack headItem = createPlayerHead(result);
-        inventory.setItem(4, headItem);
+        punishmentGUI.setItem(4, headItem);
 
-        ItemStack[] items = new ItemStack[6];
-        String[] materials = {"NETHERITE_SWORD", "BLAZE_ROD", "IRON_BARS", "PAPER", "BOOK", "EMERALD"};
-        String[] keys = {"ban", "kick", "jail", "warn", "mute", "unban"};
-        int[] slots = {10, 11, 12, 14, 15, 16};
+        ItemStack banItem = new ItemStack(Material.NETHERITE_SWORD);
+        ItemMeta banMeta = banItem.getItemMeta();
+        banMeta.setDisplayName(ChatColor.DARK_RED + plugin.getMessage("gui.ban", "Ban"));
+        List<String> banLore = new ArrayList<>();
+        banLore.add(ChatColor.RED + (result.banned ? plugin.getMessage("status.already-banned", "Already banned") : plugin.getMessage("gui.click-to-ban", "Click to ban")));
+        banLore.add(ChatColor.YELLOW + plugin.getMessage("gui.actions-shift-rmb", "Shift+RMB: Quick action"));
+        banMeta.setLore(banLore);
+        banItem.setItemMeta(banMeta);
+        punishmentGUI.setItem(10, banItem);
 
-        for (int i = 0; i < items.length; i++) {
-            items[i] = new ItemStack(Material.valueOf(materials[i]));
-            ItemMeta meta = items[i].getItemMeta();
-            if (meta != null) {
-                meta.setDisplayName(ChatColor.translateAlternateColorCodes('&', plugin.getMessage("punishment." + keys[i], keys[i])));
-                List<String> lore = new ArrayList<>();
-                if (i == 5) {
-                    lore.add(ChatColor.GRAY + plugin.getMessage("gui.actions-lmb-unban", "LMB: Quick unban"));
-                } else if (i == 2) {
-                    lore.add(ChatColor.GRAY + plugin.getMessage("gui.actions-lmb-jail", "LMB: Open jail menu"));
-                } else if (i == 3 || i == 4) {
-                    lore.add(ChatColor.GRAY + plugin.getMessage("gui.actions-lmb", "LMB: Select duration"));
-                    lore.add(ChatColor.GRAY + plugin.getMessage("gui.actions-shift-rmb", "Shift+RMB: Quick " + keys[i]));
-                } else {
-                    lore.add(ChatColor.GRAY + plugin.getMessage("gui.actions-lmb", "LMB: Reason"));
-                    lore.add(ChatColor.GRAY + plugin.getMessage("gui.actions-shift-rmb", "Shift+RMB: Quick " + keys[i]));
-                }
-                meta.setLore(lore);
-                items[i].setItemMeta(meta);
+        ItemStack kickItem = new ItemStack(Material.BLAZE_ROD);
+        ItemMeta kickMeta = kickItem.getItemMeta();
+        kickMeta.setDisplayName(ChatColor.RED + plugin.getMessage("gui.kick", "Kick"));
+        List<String> kickLore = new ArrayList<>();
+        kickLore.add(ChatColor.GRAY + plugin.getMessage("gui.click-to-kick", "Click to kick"));
+        if (!result.online) {
+            kickLore.add(ChatColor.DARK_GRAY + plugin.getMessage("gui.actions-shift-rmb", "Shift+RMB: Quick action"));
+        }
+        kickMeta.setLore(kickLore);
+        kickItem.setItemMeta(kickMeta);
+        punishmentGUI.setItem(11, kickItem);
+
+        if (getConfigValue("features.jail-system")) {
+            ItemStack jailItem = new ItemStack(Material.IRON_BARS);
+            ItemMeta jailMeta = jailItem.getItemMeta();
+            jailMeta.setDisplayName(ChatColor.GRAY + plugin.getMessage("gui.jail", "Jail"));
+            List<String> jailLore = new ArrayList<>();
+            jailLore.add(ChatColor.GRAY + plugin.getMessage("gui.click-to-jail", "Click to jail"));
+            if (!result.online) {
+                jailLore.add(ChatColor.DARK_GRAY + plugin.getMessage("gui.actions-shift-rmb", "Shift+RMB: Quick action"));
             }
-            this.inventory.setItem(slots[i], items[i]);
+            jailMeta.setLore(jailLore);
+            jailItem.setItemMeta(jailMeta);
+            punishmentGUI.setItem(12, jailItem);
         }
 
-        ItemStack back = new ItemStack(Material.ARROW);
-        ItemMeta backMeta = back.getItemMeta();
-        if (backMeta != null) {
-            backMeta.setDisplayName(ChatColor.translateAlternateColorCodes('&', plugin.getMessage("gui.back", "Back")));
-            back.setItemMeta(backMeta);
+        ItemStack warnItem = new ItemStack(Material.PAPER);
+        ItemMeta warnMeta = warnItem.getItemMeta();
+        warnMeta.setDisplayName(ChatColor.YELLOW + plugin.getMessage("gui.warn", "Warn"));
+        List<String> warnLore = new ArrayList<>();
+        warnLore.add(ChatColor.GRAY + plugin.getMessage("gui.click-to-warn", "Click to warn"));
+        if (!result.online) {
+            warnLore.add(ChatColor.DARK_GRAY + plugin.getMessage("gui.actions-shift-rmb", "Shift+RMB: Quick action"));
         }
-        this.inventory.setItem(22, back);
+        warnMeta.setLore(warnLore);
+        warnItem.setItemMeta(warnMeta);
+        punishmentGUI.setItem(14, warnItem);
 
-        player.openInventory(inventory);
-        setLastOpenedMenu(player.getUniqueId(), "punishment");
+        ItemStack muteItem = new ItemStack(Material.BOOK);
+        ItemMeta muteMeta = muteItem.getItemMeta();
+        muteMeta.setDisplayName(ChatColor.GRAY + plugin.getMessage("gui.mute", "Mute"));
+        List<String> muteLore = new ArrayList<>();
+        muteLore.add(ChatColor.GRAY + plugin.getMessage("gui.click-to-mute", "Click to mute"));
+        if (!result.online) {
+            muteLore.add(ChatColor.DARK_GRAY + plugin.getMessage("gui.actions-shift-rmb", "Shift+RMB: Quick action"));
+        }
+        muteMeta.setLore(muteLore);
+        muteItem.setItemMeta(muteMeta);
+        punishmentGUI.setItem(15, muteItem);
+
+        ItemStack unbanItem = new ItemStack(Material.EMERALD);
+        ItemMeta unbanMeta = unbanItem.getItemMeta();
+        unbanMeta.setDisplayName(ChatColor.GREEN + plugin.getMessage("gui.unban", "Unban"));
+        List<String> unbanLore = new ArrayList<>();
+        unbanLore.add(ChatColor.GREEN + (result.banned ? plugin.getMessage("gui.click-to-unban", "Click to unban") : plugin.getMessage("status.not-banned", "Not banned")));
+        unbanLore.add(ChatColor.YELLOW + plugin.getMessage("gui.actions-shift-rmb", "Shift+RMB: Quick action"));
+        unbanMeta.setLore(unbanLore);
+        unbanItem.setItemMeta(unbanMeta);
+        punishmentGUI.setItem(16, unbanItem);
+
+        ItemStack backItem = new ItemStack(Material.ARROW);
+        ItemMeta backMeta = backItem.getItemMeta();
+        backMeta.setDisplayName(ChatColor.RED + plugin.getMessage("gui.back", "Back"));
+        backItem.setItemMeta(backMeta);
+        punishmentGUI.setItem(22, backItem);
+
+        player.openInventory(punishmentGUI);
         setPlayerMenuTarget(player.getUniqueId(), result);
+        setLastOpenedMenu(player.getUniqueId(), "punishment");
         setLastTarget(player.getUniqueId(), result.name);
         plugin.savePlayerMenuState(player);
     }
@@ -800,6 +971,7 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
         setLastTarget(player.getUniqueId(), result.name);
         plugin.savePlayerMenuState(player);
     }
+
     private void openMuteDurationGUI(Player player, PlayerResult result) {
         this.inventory = Bukkit.createInventory(this, 27, plugin.getMessage("gui.mute-duration-title", "Mute Duration: ") + result.name);
 
@@ -870,6 +1042,242 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
         setPlayerMenuTarget(player.getUniqueId(), result);
         setLastTarget(player.getUniqueId(), result.name);
         plugin.savePlayerMenuState(player);
+    }
+
+    private void openBanDurationGUI(Player player, PlayerResult result) {
+        Inventory banDurationGUI = Bukkit.createInventory(this, 27, plugin.getMessage("gui.ban-duration-title", "Ban Duration: ") + ChatColor.YELLOW + result.name);
+
+        ItemStack[] durations = new ItemStack[8];
+        String[] durationKeys = {"1h", "12h", "1d", "3d", "7d", "14d", "permanent", "custom"};
+        String[] materials = {"CLOCK", "CLOCK", "CLOCK", "CLOCK", "CLOCK", "CLOCK", "BARRIER", "PAPER"};
+        int[] slots = {10, 11, 12, 13, 14, 15, 16, 17};
+
+        for (int i = 0; i < durations.length; i++) {
+            durations[i] = new ItemStack(Material.valueOf(materials[i]));
+            ItemMeta meta = durations[i].getItemMeta();
+            if (meta != null) {
+                meta.setDisplayName(ChatColor.YELLOW + plugin.getMessage("ban.duration." + durationKeys[i], durationKeys[i]));
+                List<String> lore = new ArrayList<>();
+                lore.add(ChatColor.GRAY + plugin.getMessage("gui.actions-lmb-duration", "LMB: Select duration"));
+                if (durationKeys[i].equals("custom") && !isTempPunishPluginInstalled()) {
+                    lore.add(ChatColor.RED + plugin.getMessage("error.temp-plugin-missing", "Temp ban plugin not installed! Install AdvancedBan or LiteBans."));
+                }
+                meta.setLore(lore);
+                durations[i].setItemMeta(meta);
+            }
+            banDurationGUI.setItem(slots[i], durations[i]);
+        }
+
+        ItemStack back = new ItemStack(Material.ARROW);
+        ItemMeta backMeta = back.getItemMeta();
+        if (backMeta != null) {
+            backMeta.setDisplayName(ChatColor.RED + plugin.getMessage("gui.back", "Back"));
+            back.setItemMeta(backMeta);
+        }
+        banDurationGUI.setItem(22, back);
+
+        player.openInventory(banDurationGUI);
+        setPlayerMenuTarget(player.getUniqueId(), result);
+        setLastOpenedMenu(player.getUniqueId(), "ban_duration");
+        setLastTarget(player.getUniqueId(), result.name);
+        plugin.savePlayerDataConfig();
+        plugin.savePlayerMenuState(player);
+    }
+
+    private void handleBanDurationClick(Player player, int slot, InventoryClickEvent event) {
+        PlayerResult result = playerMenuTargets.get(player.getUniqueId());
+        if (result == null) {
+            plugin.getLogger().warning("No PlayerResult found for player " + player.getName());
+            return;
+        }
+        if (player.getUniqueId().toString().equals(result.uuid)) {
+            player.sendMessage(ChatColor.RED + plugin.getMessage("error.self-punish", "You can't punish yourself."));
+            return;
+        }
+
+        if (slot == 22) {
+            openBanTypeGUI(player, result);
+            return;
+        }
+
+        String duration = null;
+        if (slot == 10) duration = "1h";
+        else if (slot == 11) duration = "12h";
+        else if (slot == 12) duration = "1d";
+        else if (slot == 13) duration = "3d";
+        else if (slot == 14) duration = "7d";
+        else if (slot == 15) duration = "14d";
+        else if (slot == 16) duration = "permanent";
+        else if (slot == 17) {
+            if (!isTempPunishPluginInstalled()) {
+                player.sendMessage(ChatColor.RED + plugin.getMessage("error.temp-plugin-missing", "Temp ban plugin not installed! Install AdvancedBan or LiteBans."));
+                return;
+            }
+            player.sendMessage(ChatColor.YELLOW + plugin.getMessage("action.enter-duration", "Enter ban duration (e.g., 1d, 1w, 1m):"));
+            plugin.getPlayerDataConfig().set("admin." + player.getUniqueId() + ".pending_action", "ban_duration");
+            plugin.savePlayerDataConfig();
+            player.closeInventory();
+            plugin.pendingActions.put(player.getUniqueId(), (message, p) -> {
+                String customDuration = message.trim();
+                if (!customDuration.matches("\\d+[smhdwMy]")) {
+                    p.sendMessage(ChatColor.RED + plugin.getMessage("error.invalid-duration", "Invalid duration format! Use e.g., 1d, 1w, 1m."));
+                    return;
+                }
+                plugin.getPlayerDataConfig().set("admin." + p.getUniqueId() + ".pending_ban_duration", customDuration);
+                plugin.getPlayerDataConfig().set("admin." + p.getUniqueId() + ".pending_action", null);
+                plugin.savePlayerDataConfig();
+                openTemporaryBanReason(p, result, customDuration);
+            });
+            return;
+        }
+
+        if (duration != null) {
+            plugin.getPlayerDataConfig().set("admin." + player.getUniqueId() + ".pending_ban_duration", duration);
+            plugin.savePlayerDataConfig();
+            openTemporaryBanReason(player, result, duration);
+        }
+    }
+
+    public void openBanReasonGUI(Player player, PlayerResult result, String duration) {
+        if (!player.hasPermission("playermanager.ban")) {
+            player.sendMessage(ChatColor.RED + plugin.getMessage("error.no-permission", "You don't have permission!"));
+            return;
+        }
+        if (player.getUniqueId().toString().equals(result.uuid)) {
+            player.sendMessage(ChatColor.RED + plugin.getMessage("error.self-punish", "You can't punish yourself."));
+            return;
+        }
+        Player targetPlayer = result.online ? Bukkit.getPlayer(result.uuid) : null;
+        if (targetPlayer != null && targetPlayer.hasPermission("playermanager.admin")) {
+            player.sendMessage(ChatColor.RED + plugin.getMessage("error.cannot-target-admin", "You cannot target another admin."));
+            return;
+        }
+        if (!plugin.getConfig().getBoolean("features.punishment-system", true)) {
+            player.sendMessage(ChatColor.RED + plugin.getMessage("error.punishment-system-disabled", "Punishment system is disabled!"));
+            return;
+        }
+        inventory = Bukkit.createInventory(this, 27, plugin.getMessage("gui.ban-reason-title", "Select Ban Reason"));
+        setLastOpenedMenu(player.getUniqueId(), "ban_reason");
+        setLastTarget(player.getUniqueId(), result.name);
+        setPlayerMenuTarget(player.getUniqueId(), result);
+
+        ItemStack griefingItem = new ItemStack(Material.TNT);
+        ItemMeta griefingMeta = griefingItem.getItemMeta();
+        if (griefingMeta != null) {
+            griefingMeta.setDisplayName(ChatColor.RED + plugin.getMessage("gui.reason.griefing", "Griefing"));
+            List<String> lore = new ArrayList<>();
+            lore.add(ChatColor.GRAY + plugin.getMessage("gui.click-to-ban", "Click to ban for griefing"));
+            griefingMeta.setLore(lore);
+            griefingItem.setItemMeta(griefingMeta);
+        }
+        inventory.setItem(10, griefingItem);
+
+        ItemStack cheatingItem = new ItemStack(Material.DIAMOND_SWORD);
+        ItemMeta cheatingMeta = cheatingItem.getItemMeta();
+        if (cheatingMeta != null) {
+            cheatingMeta.setDisplayName(ChatColor.RED + plugin.getMessage("gui.reason.cheating", "Cheating"));
+            List<String> lore = new ArrayList<>();
+            lore.add(ChatColor.GRAY + plugin.getMessage("gui.click-to-ban", "Click to ban for cheating"));
+            cheatingMeta.setLore(lore);
+            cheatingItem.setItemMeta(cheatingMeta);
+        }
+        inventory.setItem(11, cheatingItem);
+
+        ItemStack spamItem = new ItemStack(Material.BOOK);
+        ItemMeta spamMeta = spamItem.getItemMeta();
+        if (spamMeta != null) {
+            spamMeta.setDisplayName(ChatColor.RED + plugin.getMessage("gui.reason.spam", "Spam"));
+            List<String> lore = new ArrayList<>();
+            lore.add(ChatColor.GRAY + plugin.getMessage("gui.click-to-ban", "Click to ban for spam"));
+            spamMeta.setLore(lore);
+            spamItem.setItemMeta(spamMeta);
+        }
+        inventory.setItem(12, spamItem);
+
+        ItemStack customItem = new ItemStack(Material.WRITABLE_BOOK);
+        ItemMeta customMeta = customItem.getItemMeta();
+        if (customMeta != null) {
+            customMeta.setDisplayName(ChatColor.GREEN + plugin.getMessage("gui.reason.custom", "Custom Reason"));
+            List<String> lore = new ArrayList<>();
+            lore.add(ChatColor.GRAY + plugin.getMessage("gui.enter-custom-reason", "Enter custom reason in chat"));
+            customMeta.setLore(lore);
+            customItem.setItemMeta(customMeta);
+        }
+        inventory.setItem(14, customItem);
+
+        ItemStack backItem = new ItemStack(Material.ARROW);
+        ItemMeta backMeta = backItem.getItemMeta();
+        if (backMeta != null) {
+            backMeta.setDisplayName(ChatColor.YELLOW + plugin.getMessage("gui.back", "Back"));
+            backItem.setItemMeta(backMeta);
+        }
+        inventory.setItem(22, backItem);
+
+        playersInGUI.add(player.getUniqueId());
+        player.openInventory(inventory);
+        player.updateInventory();
+    }
+
+
+    private void handleBanReasonClick(Player player, int slot, InventoryClickEvent event) {
+        PlayerResult result = playerMenuTargets.get(player.getUniqueId());
+        if (result == null) {
+            plugin.getLogger().warning("No PlayerResult found for player " + player.getName());
+            return;
+        }
+        if (player.getUniqueId().toString().equals(result.uuid)) {
+            player.sendMessage(ChatColor.RED + plugin.getMessage("error.self-punish", "You can't punish yourself."));
+            return;
+        }
+
+        if (slot == 22) {
+            openBanTypeGUI(player, result);
+            return;
+        }
+
+        String reason = null;
+        if (slot == 10) reason = "griefing";
+        else if (slot == 11) reason = "cheating";
+        else if (slot == 12) reason = "spam";
+        else if (slot == 14) reason = "custom";
+
+        if (reason == null) return;
+
+        if (reason.equals("custom")) {
+            player.sendMessage(ChatColor.YELLOW + plugin.getMessage("action.enter-reason", "Enter reason in chat"));
+            plugin.getPlayerDataConfig().set("admin." + player.getUniqueId() + ".pending_action", "ban");
+            plugin.savePlayerDataConfig();
+            player.closeInventory();
+            plugin.pendingActions.put(player.getUniqueId(), (message, p) -> {
+                String customReason = message.trim();
+                String command = "ban " + result.name + " " + customReason;
+                Bukkit.getScheduler().runTask(plugin, () -> {
+                    Bukkit.dispatchCommand(p, command);
+                    p.sendMessage(ChatColor.YELLOW + plugin.getMessage("action.executed", "Executed: %command% for %player%")
+                            .replace("%command%", "ban")
+                            .replace("%player%", result.name));
+                    updatePlayerBanStatus(result.uuid, true);
+                    plugin.getPlayerDataConfig().set("admin." + p.getUniqueId() + ".pending_action", null);
+                    plugin.getPlayerDataConfig().set("admin." + p.getUniqueId() + ".ban_type", null);
+                    plugin.savePlayerDataConfig();
+                    openPunishmentGUI(p, result);
+                });
+            });
+        } else {
+            String command = "ban " + result.name + " " + reason;
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                Bukkit.dispatchCommand(player, command);
+                player.sendMessage(ChatColor.YELLOW + plugin.getMessage("action.executed", "Executed: %command% for %player%")
+                        .replace("%command%", "ban")
+                        .replace("%player%", result.name));
+                updatePlayerBanStatus(result.uuid, true);
+                plugin.getPlayerDataConfig().set("admin." + player.getUniqueId() + ".ban_type", null);
+                plugin.savePlayerDataConfig();
+                openPunishmentGUI(player, result);
+            });
+        }
+
+        refreshOpenGUIs();
     }
 
     private void openMuteReasonGUI(Player player, PlayerResult result, String duration) {
@@ -946,17 +1354,123 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
         plugin.savePlayerMenuState(player);
     }
 
+    private void openKickReasonGUI(Player player, PlayerResult result) {
+        if (!result.online) {
+            player.sendMessage(ChatColor.RED + plugin.getMessage("error.player-offline", "Player is offline. Kick requires online player."));
+            return;
+        }
+        Inventory kickReasonGUI = Bukkit.createInventory(this, 27, plugin.getMessage("gui.kick-reason-prefix", "Kick Reason: ") + ChatColor.YELLOW + result.name);
+        ItemStack headItem = createPlayerHead(result);
+        kickReasonGUI.setItem(4, headItem);
+
+        ItemStack spamItem = new ItemStack(Material.PAPER);
+        ItemMeta spamMeta = spamItem.getItemMeta();
+        spamMeta.setDisplayName(ChatColor.RED + plugin.getMessage("gui.reason-spam", "Spam/Advertising"));
+        spamItem.setItemMeta(spamMeta);
+        kickReasonGUI.setItem(10, spamItem);
+
+        ItemStack disrespectItem = new ItemStack(Material.ROTTEN_FLESH);
+        ItemMeta disrespectMeta = disrespectItem.getItemMeta();
+        disrespectMeta.setDisplayName(ChatColor.RED + plugin.getMessage("gui.reason-disrespect", "Disrespect Staff"));
+        disrespectItem.setItemMeta(disrespectMeta);
+        kickReasonGUI.setItem(11, disrespectItem);
+
+        ItemStack griefingItem = new ItemStack(Material.TNT);
+        ItemMeta griefingMeta = griefingItem.getItemMeta();
+        griefingMeta.setDisplayName(ChatColor.RED + plugin.getMessage("gui.reason-griefing", "Griefing"));
+        griefingItem.setItemMeta(griefingMeta);
+        kickReasonGUI.setItem(12, griefingItem);
+
+        ItemStack customReasonItem = new ItemStack(Material.PAPER);
+        ItemMeta customReasonMeta = customReasonItem.getItemMeta();
+        customReasonMeta.setDisplayName(ChatColor.YELLOW + plugin.getMessage("gui.custom-reason", "Custom Reason"));
+        List<String> customLore = new ArrayList<>();
+        customLore.add(ChatColor.GRAY + plugin.getMessage("gui.enter-in-chat", "Enter in chat"));
+        customReasonMeta.setLore(customLore);
+        customReasonItem.setItemMeta(customReasonMeta);
+        kickReasonGUI.setItem(14, customReasonItem);
+
+        ItemStack backItem = new ItemStack(Material.ARROW);
+        ItemMeta backMeta = backItem.getItemMeta();
+        backMeta.setDisplayName(ChatColor.RED + plugin.getMessage("gui.back", "Back"));
+        backItem.setItemMeta(backMeta);
+        kickReasonGUI.setItem(22, backItem);
+
+        player.openInventory(kickReasonGUI);
+        setPlayerMenuTarget(player.getUniqueId(), result);
+        setLastOpenedMenu(player.getUniqueId(), "kick_reason");
+        setLastTarget(player.getUniqueId(), result.name);
+        plugin.savePlayerMenuState(player);
+    }
+
+    private void handleKickReasonClick(Player player, int slot, InventoryClickEvent event) {
+        PlayerResult result = playerMenuTargets.get(player.getUniqueId());
+        if (result == null) {
+            plugin.getLogger().warning("No PlayerResult found for player " + player.getName());
+            return;
+        }
+        if (player.getUniqueId().toString().equals(result.uuid)) {
+            player.sendMessage(ChatColor.RED + plugin.getMessage("error.self-punish", "You can't punish yourself."));
+            return;
+        }
+        if (!result.online) {
+            player.sendMessage(ChatColor.RED + plugin.getMessage("error.player-offline", "Player is offline. Kick requires online player."));
+            return;
+        }
+
+        if (slot == 22) {
+            openPunishmentGUI(player, result);
+            return;
+        }
+
+        String reason = null;
+        if (slot == 10) reason = "spam_advertising";
+        else if (slot == 11) reason = "disrespect_staff";
+        else if (slot == 12) reason = "griefing";
+        else if (slot == 14) reason = "custom";
+
+        if (reason == null) return;
+
+        if ("custom".equals(reason)) {
+            player.sendMessage(ChatColor.YELLOW + plugin.getMessage("action.enter-reason", "Enter kick reason in chat"));
+            plugin.getPlayerDataConfig().set("players." + result.uuid + ".pending_action", "kick_reason");
+            plugin.savePlayerDataConfig();
+            player.closeInventory();
+            plugin.pendingActions.put(player.getUniqueId(), (message, p) -> {
+                String customReason = message.trim();
+                if (customReason.isEmpty()) {
+                    p.sendMessage(ChatColor.RED + plugin.getMessage("error.invalid-reason", "Reason cannot be empty!"));
+                    return;
+                }
+                executeKick(p, result, customReason);
+            });
+            return;
+        }
+
+        executeKick(player, result, reason);
+    }
+
+    private void executeKick(Player player, PlayerResult result, String reason) {
+        String command = "kick " + result.name + " " + reason;
+        Bukkit.dispatchCommand(player, command);
+        player.sendMessage(ChatColor.YELLOW + plugin.getMessage("action.executed", "Executed: %command% for %player%")
+                .replace("%command%", "kick").replace("%player%", result.name));
+        plugin.getPlayerDataConfig().set("players." + result.uuid + ".pending_action", null);
+        plugin.savePlayerDataConfig();
+        openPunishmentGUI(player, result);
+        refreshOpenGUIs();
+    }
+
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
-        if (!event.getInventory().equals(inventory)) {
-        }
         if (!(event.getWhoClicked() instanceof Player)) return;
-        Player player = (Player) event.getWhoClicked();
-        if (event.getInventory().getHolder() != this) return;
+        if (!(event.getInventory().getHolder() instanceof PlayerSearchGUI)) return;
+
         event.setCancelled(true);
-        if (event.getCurrentItem() == null || event.getCurrentItem().getType() == Material.AIR) return;
-        int slot = event.getRawSlot();
+        Player player = (Player) event.getWhoClicked();
+        int slot = event.getSlot();
         String currentMenu = lastOpenedMenu.getOrDefault(player.getUniqueId(), "search");
+
         if (currentMenu.equals("search")) {
             handleSearchClick(player, slot, event);
         } else if (currentMenu.equals("player")) {
@@ -965,8 +1479,6 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
             handlePunishmentClick(player, slot, event);
         } else if (currentMenu.equals("jail")) {
             handleJailClick(player, slot, event);
-        } else if (currentMenu.equals("mute")) {
-            handleMuteDurationClick(player, slot, event);
         } else if (currentMenu.equals("player_info")) {
             handlePlayerInfoClick(player, slot, event);
         } else if (currentMenu.equals("gamemode")) {
@@ -981,26 +1493,43 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
             handleMuteReasonClick(player, slot, event);
         } else if (currentMenu.equals("warn_reason")) {
             handleWarnReasonClick(player, slot, event);
+        } else if (currentMenu.equals("ban_duration")) {
+            handleBanDurationClick(player, slot, event);
+        } else if (currentMenu.equals("ban_reason")) {
+            handleBanReasonClick(player, slot, event);
+        } else if (currentMenu.equals("kick_reason")) {
+            handleKickReasonClick(player, slot, event);
+        } else if (currentMenu.equals("ban_type")) {
+            handleBanTypeClick(player, slot, event);
+        } else if (currentMenu.equals("temporary_ban")) {
+            handleTemporaryBanReasonClick(player, slot, event);
         }
     }
 
     private final Map<UUID, Long> lastPageChangeTime = new HashMap<>();
 
     private void handleSearchClick(Player player, int slot, InventoryClickEvent event) {
-        long currentTime = System.currentTimeMillis();
-        long lastChange = lastPageChangeTime.getOrDefault(player.getUniqueId(), 0L);
-        if (currentTime - lastChange < 1000) {
+        if (!player.hasPermission("playermanager.admin") && !player.hasPermission("playermanager.gui")) {
+            player.sendMessage(ChatColor.RED + plugin.getMessage("error.no-permission", "You don't have permission!"));
             return;
         }
-        lastPageChangeTime.put(player.getUniqueId(), currentTime);
 
+
+        if (slot == 1) {
+            if (!getConfigValue("features.ip-search")) {
+                player.sendMessage(ChatColor.RED + plugin.getMessage("error.ip-search-disabled", "IP search is disabled!"));
+                return;
+            }
+            ipGUI.openIPSearchGUI(player);
+            return;
+        }
         if (slot == 4) {
             if (event.getClick() == ClickType.LEFT) {
                 player.closeInventory();
                 String cancelText = plugin.getMessage("gui.cancel", "[Cancel]");
                 TextComponent message = new TextComponent(ChatColor.YELLOW + plugin.getMessage("gui.enter-search", "Enter name to search: ") + " ");
                 TextComponent cancel = new TextComponent(ChatColor.RED + cancelText);
-                cancel.setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/playermanager reset"));
+                cancel.setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/pm reset"));
                 message.addExtra(cancel);
                 player.spigot().sendMessage(message);
                 pendingActions.put(player.getUniqueId(), (msg, p) -> {
@@ -1016,17 +1545,58 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
                         currentPage = 0;
                         lastPage.put(p.getUniqueId(), 0);
                         cachedResults.clear();
+                        unfilteredResults.clear();
+
+                        inventory = Bukkit.createInventory(this, 54, plugin.getMessage("gui.title", "Player Management"));
+                        ItemStack loadingItem = new ItemStack(Material.REDSTONE);
+                        ItemMeta loadingMeta = loadingItem.getItemMeta();
+                        if (loadingMeta != null) {
+                            loadingMeta.setDisplayName(ChatColor.YELLOW + plugin.getMessage("gui.loading", "Loading..."));
+                            List<String> lore = new ArrayList<>();
+                            lore.add(ChatColor.GRAY + "Please wait...");
+                            loadingMeta.setLore(lore);
+                            loadingItem.setItemMeta(loadingMeta);
+                        }
+                        inventory.setItem(4, loadingItem);
                         p.openInventory(inventory);
                         playersInGUI.add(p.getUniqueId());
                         setLastOpenedMenu(p.getUniqueId(), "search");
                         plugin.savePlayerMenuState(p);
+
+                        BukkitRunnable loadingAnimation = new BukkitRunnable() {
+                            int dots = 0;
+                            @Override
+                            public void run() {
+                                if (!p.isOnline() || !playersInGUI.contains(p.getUniqueId())) {
+                                    cancel();
+                                    return;
+                                }
+                                dots = (dots + 1) % 4;
+                                StringBuilder dotString = new StringBuilder(ChatColor.YELLOW + plugin.getMessage("gui.loading", "Loading"));
+                                for (int i = 0; i < dots; i++) dotString.append(".");
+                                ItemMeta meta = loadingItem.getItemMeta();
+                                if (meta != null) {
+                                    meta.setDisplayName(dotString.toString());
+                                    loadingItem.setItemMeta(meta);
+                                }
+                                inventory.setItem(4, loadingItem);
+                                p.updateInventory();
+                            }
+                        };
+                        loadingAnimation.runTaskTimer(plugin, 0L, 10L);
                         Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
                             List<PlayerResult> results = getSearchResults(p, currentSearch);
                             Bukkit.getScheduler().runTask(plugin, () -> {
                                 if (p.isOnline() && playersInGUI.contains(p.getUniqueId())) {
+                                    loadingAnimation.cancel();
                                     setupSearchGUI(p, results);
                                     p.updateInventory();
                                     pendingActions.remove(p.getUniqueId());
+                                    if (results.isEmpty()) {
+                                        p.sendMessage(ChatColor.RED + plugin.getMessage("gui.no-results", "No players found for query: " + input));
+                                    }
+                                } else {
+                                    loadingAnimation.cancel();
                                 }
                             });
                         });
@@ -1036,13 +1606,23 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
                 resetSearch(player);
             }
             return;
-        }
-        if (slot == 49) {
-            player.closeInventory();
-            pendingActions.remove(player.getUniqueId());
-            return;
-        }
-        if (slot == 45 && currentPage > 0) {
+        } else if (slot == 0) {
+            Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+                List<PlayerResult> results = getSearchResults(player, currentSearch);
+                Bukkit.getScheduler().runTask(plugin, () -> {
+                    if (player.isOnline() && playersInGUI.contains(player.getUniqueId())) {
+                        setupSearchGUI(player, results);
+                        player.updateInventory();
+                    }
+                });
+            });
+        } else if (slot == 45 && currentPage > 0) {
+            long currentTime = System.currentTimeMillis();
+            long lastChange = lastPageChangeTime.getOrDefault(player.getUniqueId(), 0L);
+            if (currentTime - lastChange < 1000) {
+                return;
+            }
+            lastPageChangeTime.put(player.getUniqueId(), currentTime);
             if (event.getClick() == ClickType.SHIFT_RIGHT) {
                 currentPage = Math.max(0, currentPage - 5);
             } else {
@@ -1054,75 +1634,100 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
             player.updateInventory();
             plugin.savePlayerMenuState(player);
             return;
-        }
-        if (slot == 53) {
-            List<PlayerResult> results = cachedResults.isEmpty() ? getSearchResults(player, currentSearch) : cachedResults;
-            boolean hasNextPage = (currentPage + 1) * 36 < results.size();
-            if (hasNextPage) {
-                if (event.getClick() == ClickType.SHIFT_RIGHT) {
-                    currentPage = Math.min(currentPage + 5, (int) Math.ceil((double) results.size() / 36) - 1);
-                } else {
-                    currentPage++;
+        } else if (slot == 53) {
+                long currentTime = System.currentTimeMillis();
+                long lastChange = lastPageChangeTime.getOrDefault(player.getUniqueId(), 0L);
+                if (currentTime - lastChange < 1000) {
+                    return;
                 }
-                lastPage.put(player.getUniqueId(), currentPage);
-                setupSearchGUI(player, results);
-                player.updateInventory();
-                plugin.savePlayerMenuState(player);
-            }
-            return;
-        }
-        if (slot >= 47 && slot <= 51) {
-            Filter newFilter = null;
-            switch (slot) {
-                case 47: newFilter = Filter.ALL; break;
-                case 48: newFilter = Filter.ONLINE; break;
-                case 50: newFilter = Filter.OFFLINE; break;
-                case 51: newFilter = Filter.BANNED; break;
-            }
-            if (newFilter != null && newFilter != currentFilter) {
-                currentFilter = newFilter;
-                currentPage = 0;
-                lastPage.put(player.getUniqueId(), 0);
-                cachedResults.clear();
-                Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
-                    List<PlayerResult> results = getSearchResults(player, currentSearch);
-                    Bukkit.getScheduler().runTask(plugin, () -> {
-                        if (player.isOnline() && playersInGUI.contains(player.getUniqueId())) {
-                            setupSearchGUI(player, results);
-                            player.updateInventory();
-                            plugin.savePlayerMenuState(player);
-                        }
-                    });
+                lastPageChangeTime.put(player.getUniqueId(), currentTime);
+                List<PlayerResult> results = cachedResults.isEmpty() ? getSearchResults(player, currentSearch) : cachedResults;
+                boolean hasNextPage = (currentPage + 1) * 36 < results.size();
+                if (hasNextPage) {
+                    if (event.getClick() == ClickType.SHIFT_RIGHT) {
+                        currentPage = Math.min(currentPage + 5, (int) Math.ceil((double) results.size() / 36) - 1);
+                    } else {
+                        currentPage++;
+                    }
+                    lastPage.put(player.getUniqueId(), currentPage);
+                    setupSearchGUI(player, results);
+                    player.updateInventory();
+                    plugin.savePlayerMenuState(player);
+                }
+                return;
+        } else if (slot == 47) {
+            currentFilter = Filter.ALL;
+            currentPage = 0;
+            lastPage.put(player.getUniqueId(), 0);
+            Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+                List<PlayerResult> results = getSearchResults(player, currentSearch);
+                Bukkit.getScheduler().runTask(plugin, () -> {
+                    if (player.isOnline() && playersInGUI.contains(player.getUniqueId())) {
+                        setupSearchGUI(player, results);
+                        player.updateInventory();
+                    }
                 });
+            });
+        } else if (slot == 48) {
+            currentFilter = Filter.ONLINE;
+            currentPage = 0;
+            lastPage.put(player.getUniqueId(), 0);
+            Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+                List<PlayerResult> results = getSearchResults(player, currentSearch);
+                Bukkit.getScheduler().runTask(plugin, () -> {
+                    if (player.isOnline() && playersInGUI.contains(player.getUniqueId())) {
+                        setupSearchGUI(player, results);
+                        player.updateInventory();
+                    }
+                });
+            });
+        } else if (slot == 50) {
+            currentFilter = Filter.OFFLINE;
+            currentPage = 0;
+            lastPage.put(player.getUniqueId(), 0);
+            Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+                List<PlayerResult> results = getSearchResults(player, currentSearch);
+                Bukkit.getScheduler().runTask(plugin, () -> {
+                    if (player.isOnline() && playersInGUI.contains(player.getUniqueId())) {
+                        setupSearchGUI(player, results);
+                        player.updateInventory();
+                    }
+                });
+            });
+        } else if (slot == 51) {
+            currentFilter = Filter.BANNED;
+            currentPage = 0;
+            lastPage.put(player.getUniqueId(), 0);
+            Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+                List<PlayerResult> results = getSearchResults(player, currentSearch);
+                Bukkit.getScheduler().runTask(plugin, () -> {
+                    if (player.isOnline() && playersInGUI.contains(player.getUniqueId())) {
+                        setupSearchGUI(player, results);
+                        player.updateInventory();
+                    }
+                });
+            });
+        } else if (slot == 49) {
+            player.closeInventory();
+            playersInGUI.remove(player.getUniqueId());
+            pendingActions.remove(player.getUniqueId());
+        } else if (slot >= 9 && slot <= 44) {
+            PlayerResult result = slotMap.get(slot);
+            if (result != null) {
+                if (event.getClick() == ClickType.LEFT) {
+                    openPlayerMenu(player, result);
+                } else if (event.getClick() == ClickType.RIGHT) {
+                    if (result.online && getConfigValue("features.player-teleportation")) {
+                        Player target = Bukkit.getPlayer(UUID.fromString(result.uuid));
+                        if (target != null) {
+                            player.teleport(target.getLocation());
+                            player.sendMessage(ChatColor.GREEN + plugin.getMessage("action.teleported", "Teleported to %player%").replace("%player%", result.name));
+                        }
+                    }
+                } else if (event.getClick() == ClickType.SHIFT_RIGHT) {
+                    openPunishmentGUI(player, result);
+                }
             }
-            return;
-        }
-
-        if (slot < 0 || slot > 35) {
-            return;
-        }
-
-        PlayerResult result = slotMap.get(slot);
-        if (result == null) {
-            plugin.getLogger().warning("No PlayerResult found for slot " + slot + " in search-GUI for " + player.getName());
-            return;
-        }
-
-        if (event.getClick() == ClickType.LEFT) {
-            openPlayerMenu(player, result);
-        } else if (event.getClick() == ClickType.RIGHT) {
-            if (!getConfigValue("features.player-teleportation")) {
-                player.sendMessage(ChatColor.RED + plugin.getMessage("error.teleportation-disabled", "Teleportation is disabled!"));
-                return;
-            }
-            Player target = Bukkit.getPlayer(result.name);
-            if (target == null) {
-                player.sendMessage(ChatColor.RED + plugin.getMessage("error.player-offline", "Player is offline."));
-                return;
-            }
-            plugin.getLogger().info("Teleporting " + player.getName() + " to " + result.name);
-            player.teleport(target);
-            player.sendMessage(ChatColor.GREEN + plugin.getMessage("action.teleported", "Teleported to %player%").replace("%player%", result.name));
         }
     }
 
@@ -1196,8 +1801,8 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
                 return;
             }
             if (!result.online) {
-                    player.sendMessage(ChatColor.RED + plugin.getMessage("error.player-offline", "Player is offline."));
-                    return;
+                player.sendMessage(ChatColor.RED + plugin.getMessage("error.player-offline", "Player is offline."));
+                return;
             }
             openPlayerInfoGUI(player, result);
         }
@@ -1214,7 +1819,6 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
             player.sendMessage(ChatColor.RED + plugin.getMessage("error.self-punish", "You can't punish yourself."));
             return;
         }
-
 
         if (slot == 22) {
             openPlayerMenu(player, result);
@@ -1235,12 +1839,24 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
 
         String command = null;
         switch (index) {
-            case 0: command = "ban"; break;
-            case 1: command = "kick"; break;
-            case 2: command = "jail"; break;
-            case 3: command = "warn"; break;
-            case 4: command = "mute"; break;
-            case 5: command = "unban"; break;
+            case 0:
+                command = "ban";
+                break;
+            case 1:
+                command = "kick";
+                break;
+            case 2:
+                command = "jail";
+                break;
+            case 3:
+                command = "warn";
+                break;
+            case 4:
+                command = "mute";
+                break;
+            case 5:
+                command = "unban";
+                break;
         }
 
         boolean needsSave = false;
@@ -1248,10 +1864,6 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
 
         if (event.getClick() == ClickType.LEFT) {
             if (index == 5) { // unban
-                if (!result.banned) {
-                    player.sendMessage(ChatColor.RED + plugin.getMessage("error.not-banned", "This player is not banned!"));
-                    return;
-                }
                 Bukkit.dispatchCommand(player, command + " " + result.name);
                 player.sendMessage(ChatColor.YELLOW + plugin.getMessage("action.executed", "Executed: %command% for %player%")
                         .replace("%command%", command)
@@ -1260,6 +1872,24 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
                 plugin.getPlayerDataConfig().set(path + "banned", false);
                 needsSave = true;
                 openPunishmentGUI(player, result);
+            } else if (index == 0) { // ban
+                if (result.banned) {
+                    player.sendMessage(ChatColor.RED + plugin.getMessage("error.already-banned", "This player is already banned!"));
+                    return;
+                }
+                openBanTypeGUI(player, result);
+            } else if (index == 1) { // kick
+                if (!result.online) {
+                    player.sendMessage(ChatColor.RED + plugin.getMessage("error.player-offline", "Player is offline."));
+                    return;
+                }
+                openKickReasonGUI(player, result);
+            } else if (index == 2) { // jail
+                if (!result.online) {
+                    player.sendMessage(ChatColor.RED + plugin.getMessage("error.player-offline", "Player is offline."));
+                    return;
+                }
+                openJailGUI(player, result);
             } else if (index == 3) { // warn
                 if (!result.online) {
                     player.sendMessage(ChatColor.RED + plugin.getMessage("error.player-offline", "Player is offline."));
@@ -1272,38 +1902,25 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
                     return;
                 }
                 openMuteDurationGUI(player, result);
-            } else if (index == 2) { // jail
-                if (!result.online) {
-                    player.sendMessage(ChatColor.RED + plugin.getMessage("error.player-offline", "Player is offline."));
-                    return;
-                }
-                openJailGUI(player, result);
-            } else { // ban, kick
-                if (!result.online && index != 0) {
-                    player.sendMessage(ChatColor.RED + plugin.getMessage("error.player-offline", "Player is offline."));
-                    return;
-                }
-                if (index == 0 && result.banned) {
-                    player.sendMessage(ChatColor.RED + plugin.getMessage("error.already-banned", "This player is already banned!"));
-                    return;
-                }
-                player.sendMessage(ChatColor.RED + plugin.getMessage("action.click-to-copy", "Click to copy"));
-                TextComponent msg = new TextComponent(ChatColor.RED + "/" + command + " " + result.name + " ");
-                msg.setClickEvent(new ClickEvent(ClickEvent.Action.SUGGEST_COMMAND, "/" + command + " " + result.name + " "));
-                player.spigot().sendMessage(msg);
-                player.closeInventory();
             }
-        } else if (event.getClick() == ClickType.SHIFT_RIGHT && index != 5) { // quick actions
+        } else if (event.getClick() == ClickType.SHIFT_RIGHT && index != 5) {
             if (!result.online && index != 0) {
                 player.sendMessage(ChatColor.RED + plugin.getMessage("error.player-offline", "Player is offline."));
                 return;
             }
-            if (index == 0 && result.banned) {
+            if (index == 0 && result.banned) { // ban
                 player.sendMessage(ChatColor.RED + plugin.getMessage("error.already-banned", "This player is already banned!"));
                 return;
             }
-            Bukkit.dispatchCommand(player, command + " " + result.name);
-            player.sendMessage(ChatColor.YELLOW + plugin.getMessage("action.executed", "Executed: %command% for %player%")
+            String reason = "Punished by admin";
+            String fullCommand = command + " " + result.name + (index == 0 || index == 1 ? " " + reason : "");
+            if (index == 0 && !isTempPunishPluginInstalled()) {
+                fullCommand = "ban " + result.name + " " + reason;
+            } else if (index == 0) {
+                fullCommand = "tempban " + result.name + " 1d " + reason;
+            }
+            Bukkit.dispatchCommand(player, fullCommand);
+            player.sendMessage(ChatColor.YELLOW + plugin.getMessage("action.executed-quick", "Quick %command% executed for %player%")
                     .replace("%command%", command)
                     .replace("%player%", result.name));
             if (index == 0) { // ban
@@ -1311,7 +1928,6 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
                 plugin.getPlayerDataConfig().set(path + "banned", true);
                 needsSave = true;
             }
-            player.closeInventory();
             openPunishmentGUI(player, result);
         }
 
@@ -1812,6 +2428,242 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
         refreshOpenGUIs();
     }
 
+    public void openBanTypeGUI(Player player, PlayerResult result) {
+        if (!player.hasPermission("playermanager.ban")) {
+            player.sendMessage(ChatColor.RED + plugin.getMessage("error.no-permission", "You don't have permission!"));
+            return;
+        }
+        if (player.getUniqueId().toString().equals(result.uuid)) {
+            player.sendMessage(ChatColor.RED + plugin.getMessage("error.self-punish", "You can't punish yourself."));
+            return;
+        }
+        Player targetPlayer = result.online ? Bukkit.getPlayer(result.uuid) : null;
+        if (targetPlayer != null && targetPlayer.hasPermission("playermanager.admin")) {
+            player.sendMessage(ChatColor.RED + plugin.getMessage("error.cannot-target-admin", "You cannot target another admin."));
+            return;
+        }
+        if (!plugin.getConfig().getBoolean("features.punishment-system", true)) {
+            player.sendMessage(ChatColor.RED + plugin.getMessage("error.punishment-system-disabled", "Punishment system is disabled!"));
+            return;
+        }
+        inventory = Bukkit.createInventory(this, 27, plugin.getMessage("gui.ban-type-title", "Select Ban Type"));
+        setLastOpenedMenu(player.getUniqueId(), "ban_type");
+        setLastTarget(player.getUniqueId(), result.name);
+        setPlayerMenuTarget(player.getUniqueId(), result);
+
+        ItemStack permanentItem = new ItemStack(Material.BEDROCK);
+        ItemMeta permMeta = permanentItem.getItemMeta();
+        if (permMeta != null) {
+            permMeta.setDisplayName(ChatColor.RED + plugin.getMessage("gui.permanent-ban", "Permanent Ban"));
+            List<String> permLore = new ArrayList<>();
+            permLore.add(ChatColor.GRAY + plugin.getMessage("gui.click-to-select", "Click to select"));
+            permMeta.setLore(permLore);
+            permanentItem.setItemMeta(permMeta);
+        }
+        inventory.setItem(11, permanentItem);
+
+        ItemStack tempItem = new ItemStack(Material.CLOCK);
+        ItemMeta tempMeta = tempItem.getItemMeta();
+        if (tempMeta != null) {
+            tempMeta.setDisplayName(ChatColor.YELLOW + plugin.getMessage("gui.temporary-ban", "Temporary Ban"));
+            List<String> tempLore = new ArrayList<>();
+            tempLore.add(ChatColor.GRAY + plugin.getMessage("gui.click-to-select", "Click to select"));
+            tempMeta.setLore(tempLore);
+            tempItem.setItemMeta(tempMeta);
+        }
+        inventory.setItem(15, tempItem);
+
+        ItemStack backItem = new ItemStack(Material.ARROW);
+        ItemMeta backMeta = backItem.getItemMeta();
+        if (backMeta != null) {
+            backMeta.setDisplayName(ChatColor.YELLOW + plugin.getMessage("gui.back", "Back"));
+            backItem.setItemMeta(backMeta);
+        }
+        inventory.setItem(22, backItem);
+
+        playersInGUI.add(player.getUniqueId());
+        player.openInventory(inventory);
+        player.updateInventory();
+    }
+
+    private void handleBanTypeClick(Player player, int slot, InventoryClickEvent event) {
+        PlayerResult result = playerMenuTargets.get(player.getUniqueId());
+        if (result == null) return;
+
+        if (slot == 11) {
+            plugin.getPlayerDataConfig().set("admin." + player.getUniqueId() + ".ban_type", "permanent");
+            plugin.savePlayerDataConfig();
+            openBanReasonGUI(player, result, "permanent");
+        } else if (slot == 15) {
+            if (!isTempPunishPluginInstalled()) {
+                player.sendMessage(ChatColor.RED + plugin.getMessage("error.no-temp-plugin", "No temporary punishment plugin installed! «AdvancedBan,Litebans»"));
+                return;
+            }
+            plugin.getPlayerDataConfig().set("admin." + player.getUniqueId() + ".ban_type", "temporary");
+            plugin.savePlayerDataConfig();
+            openBanDurationGUI(player, result);
+        } else if (slot == 22) {
+            openPunishmentGUI(player, result);
+        }
+    }
+
+    public void openTemporaryBanReason(Player player, PlayerResult result, String duration) {
+        plugin.getPlayerDataConfig().set("admin." + player.getUniqueId() + ".pending_ban_duration", duration);
+        plugin.savePlayerDataConfig();
+        if (!player.hasPermission("playermanager.ban")) {
+            player.sendMessage(ChatColor.RED + plugin.getMessage("error.no-permission", "You don't have permission!"));
+            return;
+        }
+        if (player.getUniqueId().toString().equals(result.uuid)) {
+            player.sendMessage(ChatColor.RED + plugin.getMessage("error.self-punish", "You can't punish yourself."));
+            return;
+        }
+        Player targetPlayer = result.online ? Bukkit.getPlayer(result.uuid) : null;
+        if (targetPlayer != null && targetPlayer.hasPermission("playermanager.admin")) {
+            player.sendMessage(ChatColor.RED + plugin.getMessage("error.cannot-target-admin", "You cannot target another admin."));
+            return;
+        }
+        if (!plugin.getConfig().getBoolean("features.punishment-system", true)) {
+            player.sendMessage(ChatColor.RED + plugin.getMessage("error.punishment-system-disabled", "Punishment system is disabled!"));
+            return;
+        }
+        inventory = Bukkit.createInventory(this, 27, plugin.getMessage("gui.ban-reason-title", "Select Ban Reason"));
+        setLastOpenedMenu(player.getUniqueId(), "ban_reason");
+        setLastTarget(player.getUniqueId(), result.name);
+        setPlayerMenuTarget(player.getUniqueId(), result);
+        ItemStack griefingItem = new ItemStack(Material.TNT);
+        ItemMeta griefingMeta = griefingItem.getItemMeta();
+        if (griefingMeta != null) {
+            griefingMeta.setDisplayName(ChatColor.RED + plugin.getMessage("gui.reason.griefing", "Griefing"));
+            List<String> lore = new ArrayList<>();
+            lore.add(ChatColor.GRAY + plugin.getMessage("gui.click-to-ban", "Click to ban for griefing"));
+            griefingMeta.setLore(lore);
+            griefingItem.setItemMeta(griefingMeta);
+        }
+        inventory.setItem(10, griefingItem);
+
+        ItemStack cheatingItem = new ItemStack(Material.DIAMOND_SWORD);
+        ItemMeta cheatingMeta = cheatingItem.getItemMeta();
+        if (cheatingMeta != null) {
+            cheatingMeta.setDisplayName(ChatColor.RED + plugin.getMessage("gui.reason.cheating", "Cheating"));
+            List<String> lore = new ArrayList<>();
+            lore.add(ChatColor.GRAY + plugin.getMessage("gui.click-to-ban", "Click to ban for cheating"));
+            cheatingMeta.setLore(lore);
+            cheatingItem.setItemMeta(cheatingMeta);
+        }
+        inventory.setItem(11, cheatingItem);
+
+        ItemStack spamItem = new ItemStack(Material.BOOK);
+        ItemMeta spamMeta = spamItem.getItemMeta();
+        if (spamMeta != null) {
+            spamMeta.setDisplayName(ChatColor.RED + plugin.getMessage("gui.reason.spam", "Spam"));
+            List<String> lore = new ArrayList<>();
+            lore.add(ChatColor.GRAY + plugin.getMessage("gui.click-to-ban", "Click to ban for spam"));
+            spamMeta.setLore(lore);
+            spamItem.setItemMeta(spamMeta);
+        }
+        inventory.setItem(12, spamItem);
+
+        ItemStack customItem = new ItemStack(Material.WRITABLE_BOOK);
+        ItemMeta customMeta = customItem.getItemMeta();
+        if (customMeta != null) {
+            customMeta.setDisplayName(ChatColor.GREEN + plugin.getMessage("gui.reason.custom", "Custom Reason"));
+            List<String> lore = new ArrayList<>();
+            lore.add(ChatColor.GRAY + plugin.getMessage("gui.enter-custom-reason", "Enter custom reason in chat"));
+            customMeta.setLore(lore);
+            customItem.setItemMeta(customMeta);
+        }
+        inventory.setItem(14, customItem);
+
+        ItemStack backItem = new ItemStack(Material.ARROW);
+        ItemMeta backMeta = backItem.getItemMeta();
+        if (backMeta != null) {
+            backMeta.setDisplayName(ChatColor.YELLOW + plugin.getMessage("gui.back", "Back"));
+            backItem.setItemMeta(backMeta);
+        }
+        inventory.setItem(22, backItem);
+
+        playersInGUI.add(player.getUniqueId());
+        player.openInventory(inventory);
+        player.updateInventory();
+    }
+
+    private void handleTemporaryBanReasonClick(Player player, int slot, InventoryClickEvent event) {
+        PlayerResult result = playerMenuTargets.get(player.getUniqueId());
+        if (result == null) {
+            plugin.getLogger().warning("No PlayerResult found for player " + player.getName());
+            return;
+        }
+        if (player.getUniqueId().toString().equals(result.uuid)) {
+            player.sendMessage(ChatColor.RED + plugin.getMessage("error.self-punish", "You can't punish yourself."));
+            return;
+        }
+
+        if (slot == 22) {
+            openBanDurationGUI(player, result);
+            return;
+        }
+
+        String reason = null;
+        if (slot == 10) reason = "griefing";
+        else if (slot == 11) reason = "cheating";
+        else if (slot == 12) reason = "spam";
+        else if (slot == 14) reason = "custom";
+
+        if (reason == null) return;
+
+        String duration = plugin.getPlayerDataConfig().getString("admin." + player.getUniqueId() + ".pending_ban_duration", "1d");
+        String tempbanCommand = "tempban";
+        if (reason.equals("custom")) {
+            player.sendMessage(ChatColor.YELLOW + plugin.getMessage("action.enter-reason", "Enter reason in chat"));
+            plugin.getPlayerDataConfig().set("admin." + player.getUniqueId() + ".pending_action", "tempban");
+            plugin.savePlayerDataConfig();
+            player.closeInventory();
+            plugin.pendingActions.put(player.getUniqueId(), (message, p) -> {
+                String customReason = message.trim();
+                String command = tempbanCommand + " " + result.name + " " + duration + " " + customReason;
+                Bukkit.getScheduler().runTask(plugin, () -> {
+                    Bukkit.dispatchCommand(p, command);
+                    p.sendMessage(ChatColor.YELLOW + plugin.getMessage("action.executed", "Executed: %command% for %player%")
+                            .replace("%command%", tempbanCommand)
+                            .replace("%player%", result.name));
+                    updatePlayerBanStatus(result.uuid, true);
+                    plugin.getPlayerDataConfig().set("admin." + p.getUniqueId() + ".pending_action", null);
+                    plugin.getPlayerDataConfig().set("admin." + p.getUniqueId() + ".pending_ban_duration", null);
+                    plugin.savePlayerDataConfig();
+                    openPunishmentGUI(p, result);
+                });
+            });
+        } else {
+            String command = tempbanCommand + " " + result.name + " " + duration + " " + reason;
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                Bukkit.dispatchCommand(player, command);
+                player.sendMessage(ChatColor.YELLOW + plugin.getMessage("action.executed", "Executed: %command% for %player%")
+                        .replace("%command%", tempbanCommand)
+                        .replace("%player%", result.name));
+                updatePlayerBanStatus(result.uuid, true);
+                plugin.getPlayerDataConfig().set("admin." + player.getUniqueId() + ".pending_action", null);
+                plugin.getPlayerDataConfig().set("admin." + player.getUniqueId() + ".pending_ban_duration", null);
+                plugin.savePlayerDataConfig();
+                openPunishmentGUI(player, result);
+            });
+        }
+
+        refreshOpenGUIs();
+    }
+
+    private void updatePlayerBanStatus(String uuid, boolean banned) {
+        PlayerResult result = playerMenuTargets.values().stream()
+                .filter(r -> r.uuid.equals(uuid))
+                .findFirst()
+                .orElse(null);
+        if (result != null) {
+            result.banned = banned;
+        }
+        plugin.getPlayerDataConfig().set("players." + uuid + ".banned", banned);
+        plugin.savePlayerDataConfig();
+    }
+
     @EventHandler
     public void onPlayerInteract(PlayerInteractEvent event) {
         Player player = event.getPlayer();
@@ -1882,6 +2734,15 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
                     } else if (currentMenu.equals("warn_reason") && result != null) {
                         String duration = plugin.getPlayerDataConfig().getString("players." + result.uuid + ".pending_warn_duration", "permanent");
                         openWarnReasonGUI(player, result, duration);
+                    } else if (currentMenu.equals("ban_duration") && result != null) {
+                        openBanDurationGUI(player, result);
+                    } else if (currentMenu.equals("ban_reason") && result != null) {
+                        String duration = plugin.getPlayerDataConfig().getString("players." + result.uuid + ".pending_ban_duration", "permanent");
+                        openBanReasonGUI(player, result, duration);
+                    } else if (currentMenu.equals("kick_reason") && result != null) {
+                        openKickReasonGUI(player, result);
+                    } else if (currentMenu.equals("ban_type") && result != null) {
+                        openBanTypeGUI(player, result);
                     } else {
                         plugin.getLogger().warning("Invalid menu state for " + player.getName() + ": " + currentMenu + ", resetting to search");
                         List<PlayerResult> results = cachedResults.isEmpty() ? getSearchResults(player, currentSearch) : cachedResults;
@@ -1905,6 +2766,7 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
         this.currentFilter = Filter.ALL;
         this.currentPage = 0;
         this.cachedResults.clear();
+        this.unfilteredResults.clear();
         this.lastPage.put(player.getUniqueId(), 0);
         this.lastTarget.remove(player.getUniqueId());
         this.setLastOpenedMenu(player.getUniqueId(), "search");
@@ -1940,10 +2802,6 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
 
     public int getLastPage(UUID playerId) {
         return this.lastPage.getOrDefault(playerId, 0);
-    }
-
-    public void setLastPage(UUID playerId, int page) {
-        this.lastPage.put(playerId, page);
     }
 
     public String getLastTarget(UUID playerId) {
@@ -2024,13 +2882,44 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
     @EventHandler
     public void onPlayerChat(AsyncPlayerChatEvent event) {
         Player player = event.getPlayer();
-        ChatAction action = pendingActions.get(player.getUniqueId());
-        if (action != null) {
-            event.setCancelled(true);
-            action.execute(event.getMessage(), player);
+        UUID playerId = player.getUniqueId();
+        if (!pendingActions.containsKey(playerId)) return;
+
+        event.setCancelled(true);
+        String message = event.getMessage().trim();
+        if (message.isEmpty()) {
+            Bukkit.getScheduler().runTask(plugin, () -> player.sendMessage(ChatColor.RED + plugin.getMessage("error.invalid-input", "Input cannot be empty!")));
+            return;
         }
+
+        plugin.getLogger().info("Processing chat input for " + player.getName() + ": " + message);
+
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            if (pendingActions.containsKey(playerId)) {
+                pendingActions.get(playerId).execute(message, player);
+                pendingActions.remove(playerId);
+                plugin.getLogger().info("Chat action executed for " + player.getName() + ", pending action removed");
+            } else {
+                plugin.getLogger().warning("No pending action found for " + player.getName() + " after chat input");
+            }
+        });
     }
 
+    private boolean isTempPunishPluginInstalled() {
+        String[] tempPlugins = {"AdvancedBan", "LiteBans", "TempBan", "PunishmentManager"};
+        for (String pluginName : tempPlugins) {
+            if (Bukkit.getPluginManager().getPlugin(pluginName) != null) {
+                return true;
+            }
+        }
+        return false;
+    }
+    public void addPendingAction(UUID uuid, ChatAction action) {
+        pendingActions.put(uuid, action);
+    }
+    public Set<UUID> getPlayersInGUI() {
+        return playersInGUI;
+    }
     @EventHandler
     public void onInventoryClose(InventoryCloseEvent event) {
         if (event.getPlayer() instanceof Player) {

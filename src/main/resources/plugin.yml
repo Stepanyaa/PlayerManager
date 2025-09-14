@@ -1,5 +1,5 @@
 name: PlayerManager
-version: 1.0.5
+version: 1.0.6
 main: ru.stepanyaa.playerManager.PlayerManager
 license: MIT
 folia-supported: false
@@ -25,6 +25,7 @@ permissions:
    playermanager.inventory: true
    playermanager.updates: true
    playermanager.gamemode: true
+   playermanager.ip-search: true
  playermanager.gui:
   description: Allows access to the PlayerManager GUI
   default: op
@@ -62,4 +63,7 @@ permissions:
   default: op
  playermanager.gamemode:
   description: Allows gamemode gui using PlayerManager
+  default: op
+ playermanager.ip-search:
+  description: Allows ip-search gui using PlayerManager
   default: op

@@ -1,8 +1,7 @@
 # PlayerManager ✨
-A powerful and intuitive Minecraft plugin for efficient player management.
+*A powerful and intuitive Minecraft plugin for efficient player management.*
 
-## A major plugin update v1.0.5 is out! 🚀
-
+## A major plugin update v1.0.6 is out! 🚀
 
 ![Paper](https://img.shields.io/badge/Paper-1.16.1%E2%80%931.21.8-success&logo=minecraft)     
 ![Spigot](https://img.shields.io/badge/Spigot-1.16.1%E2%80%931.21.8-success&logo=minecraft)   
@@ -60,6 +59,8 @@ A powerful and intuitive Minecraft plugin for efficient player management.
 - `playermanager.teleport` - Teleport to players
 - `playermanager.inventory` - Inspect player inventories
 - `playermanager.updates` - Receive update notifications
+- `playermanager.gamemode` - Allows gamemode gui using PlayerManager
+- `playermanager.ip-search` - Allows ip-search gui using PlayerManager
 
 ✅ `/pm gui` – open the GUI  
 ✅ `/pm ban <player>`, `/pm teleport <player>` – run actions via commands  

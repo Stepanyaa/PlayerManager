@@ -1,3 +1,27 @@
+/**
+ * MIT License
+ *
+ * PlayerManager
+ * Copyright (c) 2025 Stepanyaa
+
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
 package ru.stepanyaa.playerManager;
 
 import org.bukkit.BanList;
@@ -29,6 +53,7 @@ public class PlayerManagerIpGUI implements InventoryHolder, Listener {
     private final Map<String, List<PlayerSearchGUI.PlayerResult>> cachedSearchByIPResults = new HashMap<>();
     private int currentPage = 0;
     private final Map<UUID, Integer> lastPage = new HashMap<>();
+    private final Map<UUID, List<String>> pendingBanAllUsers = new HashMap<>();
 
     public PlayerManagerIpGUI(PlayerManager plugin, PlayerSearchGUI searchGUI) {
         this.plugin = plugin;
@@ -36,7 +61,6 @@ public class PlayerManagerIpGUI implements InventoryHolder, Listener {
         this.inventory = Bukkit.createInventory(this, 54, ChatColor.DARK_GRAY + plugin.getMessage("gui.ip-search-title", "IP Search"));
         Bukkit.getPluginManager().registerEvents(this, plugin);
     }
-
     public static class IPResult {
         public String ip;
         public int accountCount;
@@ -51,7 +75,6 @@ public class PlayerManagerIpGUI implements InventoryHolder, Listener {
             return;
         }
         if (!player.isOnline()) {
-            plugin.getLogger().warning("Attempted to open IP search GUI for offline player: " + player.getName());
             return;
         }
         if (!plugin.getConfig().getBoolean("features.ip-search", true)) {
@@ -167,7 +190,6 @@ public class PlayerManagerIpGUI implements InventoryHolder, Listener {
         }
 
         ipResults.sort(Comparator.comparing(r -> r.ip));
-        plugin.getLogger().info("Processed " + totalPlayers + " players, found " + ipResults.size() + " unique IPs");
         return ipResults;
     }
 
@@ -311,7 +333,6 @@ public class PlayerManagerIpGUI implements InventoryHolder, Listener {
                 long startTime = System.currentTimeMillis();
                 List<PlayerSearchGUI.PlayerResult> results = getSearchResultsByIP(ip);
                 cachedSearchByIPResults.put(ip, results);
-                plugin.getLogger().info("Loaded " + results.size() + " accounts for IP " + ip + " in " + (System.currentTimeMillis() - startTime) + "ms");
                 if (results.isEmpty()) {
                     plugin.getLogger().warning("No accounts found for IP: " + ip);
                     Bukkit.getScheduler().runTask(plugin, () -> {
@@ -335,11 +356,9 @@ public class PlayerManagerIpGUI implements InventoryHolder, Listener {
                         searchGUI.setLastOpenedMenu(player.getUniqueId(), "search");
                         player.updateInventory();
                     } else {
-                        plugin.getLogger().warning("Player " + player.getName() + " went offline before IP search results display");
                     }
                 });
             } catch (Exception e) {
-                plugin.getLogger().severe("Failed to load search results for IP " + ip + ": " + e.getMessage());
                 e.printStackTrace();
                 Bukkit.getScheduler().runTask(plugin, () -> {
                     if (player.isOnline()) {
@@ -375,7 +394,6 @@ public class PlayerManagerIpGUI implements InventoryHolder, Listener {
                         continue;
                     }
                     if (name.isEmpty()) {
-                        plugin.getLogger().warning("Skipping player with UUID " + uuid + " due to missing name");
                         continue;
                     }
                     OfflinePlayer offlinePlayer = Bukkit.getOfflinePlayer(UUID.fromString(uuid));
@@ -393,7 +411,6 @@ public class PlayerManagerIpGUI implements InventoryHolder, Listener {
                     results.add(result);
                 }
             } catch (IllegalArgumentException e) {
-                plugin.getLogger().warning("Invalid UUID " + uuid + " in player_data.yml for IP search: " + ip);
             }
         }
 
@@ -403,44 +420,57 @@ public class PlayerManagerIpGUI implements InventoryHolder, Listener {
 
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
-        if (!(event.getWhoClicked() instanceof Player) || !(event.getInventory().getHolder() instanceof PlayerManagerIpGUI)) {
-            return;
-        }
+        if (!(event.getWhoClicked() instanceof Player)) return;
         Player player = (Player) event.getWhoClicked();
-        int slot = event.getRawSlot();
-        if (slot < 0 || slot >= event.getInventory().getSize()) {
-            return;
-        }
+        if (!(event.getInventory().getHolder() instanceof PlayerManagerIpGUI)) return;
         event.setCancelled(true);
+        ItemStack clickedItem = event.getCurrentItem();
+        if (clickedItem == null || clickedItem.getType() == Material.AIR) return;
 
         String currentMenu = lastOpenedMenu.getOrDefault(player.getUniqueId(), "ip_search");
+        int slot = event.getSlot();
+
         if (currentMenu.equals("ip_search")) {
             if (slot == 4) {
+                if (!player.hasPermission("playermanager.ip-search")) {
+                    player.sendMessage(ChatColor.RED + plugin.getMessage("error.no-permission", "You don't have permission!"));
+                    return;
+                }
+                player.sendMessage(ChatColor.YELLOW + plugin.getMessage("action.enter-ip", "Enter IP address in chat"));
+                plugin.getPlayerDataConfig().set("admin." + player.getUniqueId() + ".pending_action", "ip_search");
+                plugin.savePlayerDataConfig();
                 player.closeInventory();
                 searchGUI.addPendingAction(player.getUniqueId(), (message, p) -> {
-                    lastTarget.put(p.getUniqueId(), message);
-                    openSearchGUIByIP(p, message);
+                    String ip = message.trim();
+                    openSearchGUIByIP(p, ip);
                 });
-                player.sendMessage(ChatColor.YELLOW + plugin.getMessage("gui.enter-ip", "Enter IP address:"));
-            } else if (slot == 49) {
-                player.closeInventory();
-            } else if (slot >= 9 && slot < 45) {
+            }
+            else if (slot >= 9 && slot < 45) {
                 IPResult result = slotMap.get(slot);
                 if (result != null) {
-                    lastTarget.put(player.getUniqueId(), result.ip);
+                    setLastTarget(player.getUniqueId(), result.ip);
                     openIPDetails(player, result);
                 }
-            } else if (slot == 45 && currentPage > 0) {
+            }
+            else if (slot == 45 && currentPage > 0) {
                 currentPage--;
-                setLastPage(player.getUniqueId(), currentPage);
                 setupIPSearchGUI(player, cachedIPResults);
-            } else if (slot == 53 && (currentPage + 1) * 36 < cachedIPResults.size()) {
+                player.updateInventory();
+            }
+            else if (slot == 53 && (currentPage + 1) * 36 < cachedIPResults.size()) {
                 currentPage++;
-                setLastPage(player.getUniqueId(), currentPage);
                 setupIPSearchGUI(player, cachedIPResults);
+                player.updateInventory();
+            }
+            else if (slot == 49) {
+                player.closeInventory();
+                playersInGUI.remove(player.getUniqueId());
+                searchGUI.openSearchGUI(player);
             }
         } else if (currentMenu.equals("ip_details")) {
             handleIPDetailsClick(player, slot, event);
+        } else if (currentMenu.equals("ban_all_confirm")) {
+            handleBanAllConfirmClick(player, slot, event);
         }
     }
 
@@ -556,23 +586,11 @@ public class PlayerManagerIpGUI implements InventoryHolder, Listener {
                     return;
                 }
                 List<String> users = getUsersByIP(ip);
-                int bannedCount = 0;
-                for (String user : users) {
-                    OfflinePlayer offline = Bukkit.getOfflinePlayer(user);
-                    if (offline != null && !plugin.getPlayerDataConfig().getBoolean("players." + offline.getUniqueId() + ".banned", false)) {
-                        if (plugin.isAdminPlayer(offline)) {
-                            plugin.getLogger().info("Skipping admin " + user + " during ban all users for IP " + ip);
-                            continue;
-                        }
-                        Bukkit.dispatchCommand(player, "ban " + user);
-                        plugin.updatePlayerBanStatus(offline.getUniqueId().toString(), true);
-                        bannedCount++;
-                    }
+                if (users.isEmpty()) {
+                    player.sendMessage(ChatColor.RED + plugin.getMessage("error.no-users", "No users found on this IP."));
+                    return;
                 }
-                player.sendMessage(ChatColor.YELLOW + plugin.getMessage("action.ban-users", "Banned %count% users on IP: %ip%")
-                        .replace("%count%", String.valueOf(bannedCount)).replace("%ip%", ip));
-                cachedSearchByIPResults.remove(ip);
-                openIPSearchGUI(player);
+                openBanAllUsersConfirmGUI(player, ip, users);
                 event.setCancelled(true);
             } else if (slot == 16) {
                 if (!player.hasPermission("playermanager.ban")) {
@@ -584,7 +602,7 @@ public class PlayerManagerIpGUI implements InventoryHolder, Listener {
                 for (String user : users) {
                     OfflinePlayer offline = Bukkit.getOfflinePlayer(user);
                     if (offline != null && plugin.getPlayerDataConfig().getBoolean("players." + offline.getUniqueId() + ".banned", false)) {
-                        Bukkit.dispatchCommand(player, "unban " + user);
+                        Bukkit.dispatchCommand(player, "pardon " + user);
                         plugin.updatePlayerBanStatus(offline.getUniqueId().toString(), false);
                         unbannedCount++;
                     }
@@ -622,6 +640,140 @@ public class PlayerManagerIpGUI implements InventoryHolder, Listener {
         return users;
     }
 
+    public void openBanAllUsersConfirmGUI(Player player, String ip, List<String> users) {
+        if (!player.hasPermission("playermanager.ban")) {
+            player.sendMessage(ChatColor.RED + plugin.getMessage("error.no-permission", "You don't have permission!"));
+            return;
+        }
+        if (users.isEmpty()) {
+            player.sendMessage(ChatColor.RED + plugin.getMessage("error.no-users", "No users found on this IP."));
+            return;
+        }
+
+        Inventory confirmInventory = Bukkit.createInventory(this, 27, ChatColor.DARK_RED + plugin.getMessage("gui.confirm-ban-all-title", "Confirm Ban All Users on IP: ") + ChatColor.YELLOW + ip);
+        setLastOpenedMenu(player.getUniqueId(), "ban_all_confirm");
+        setLastTarget(player.getUniqueId(), ip);
+        pendingBanAllUsers.put(player.getUniqueId(), new ArrayList<>(users));
+        plugin.savePlayerMenuState(player);
+
+        ItemStack infoItem = new ItemStack(Material.PAPER);
+        ItemMeta infoMeta = infoItem.getItemMeta();
+        if (infoMeta != null) {
+            infoMeta.setDisplayName(ChatColor.YELLOW + plugin.getMessage("gui.confirm-info", "Users to ban (%count%):").replace("%count%", String.valueOf(users.size())));
+            List<String> lore = new ArrayList<>();
+            lore.add(ChatColor.GRAY + "Users:");
+            for (int i = 0; i < Math.min(10, users.size()); i++) {
+                lore.add(ChatColor.WHITE + users.get(i));
+            }
+            if (users.size() > 10) {
+                lore.add(ChatColor.GRAY + "... and " + (users.size() - 10) + " more");
+            }
+            lore.add("");
+            lore.add(ChatColor.RED + plugin.getMessage("gui.confirm-warning", "This will ban ALL users on this IP!"));
+            infoMeta.setLore(lore);
+            infoItem.setItemMeta(infoMeta);
+        }
+        confirmInventory.setItem(4, infoItem);
+
+        ItemStack confirmItem = new ItemStack(Material.REDSTONE_BLOCK);
+        ItemMeta confirmMeta = confirmItem.getItemMeta();
+        if (confirmMeta != null) {
+            confirmMeta.setDisplayName(ChatColor.GREEN + plugin.getMessage("gui.confirm", "Confirm Ban All"));
+            List<String> confirmLore = new ArrayList<>();
+            confirmLore.add(ChatColor.GRAY + plugin.getMessage("gui.click-to-confirm", "Click to confirm"));
+            confirmMeta.setLore(confirmLore);
+            confirmItem.setItemMeta(confirmMeta);
+        }
+        confirmInventory.setItem(12, confirmItem);
+
+        ItemStack cancelItem = new ItemStack(Material.EMERALD);
+        ItemMeta cancelMeta = cancelItem.getItemMeta();
+        if (cancelMeta != null) {
+            cancelMeta.setDisplayName(ChatColor.RED + plugin.getMessage("gui.cancel", "Cancel"));
+            List<String> cancelLore = new ArrayList<>();
+            cancelLore.add(ChatColor.GRAY + plugin.getMessage("gui.click-to-cancel", "Click to cancel"));
+            cancelMeta.setLore(cancelLore);
+            cancelItem.setItemMeta(cancelMeta);
+        }
+        confirmInventory.setItem(14, cancelItem);
+
+        ItemStack backItem = new ItemStack(Material.ARROW);
+        ItemMeta backMeta = backItem.getItemMeta();
+        if (backMeta != null) {
+            backMeta.setDisplayName(ChatColor.YELLOW + plugin.getMessage("gui.back", "Back"));
+            backItem.setItemMeta(backMeta);
+        }
+        confirmInventory.setItem(22, backItem);
+
+        playersInGUI.add(player.getUniqueId());
+        player.openInventory(confirmInventory);
+        player.updateInventory();
+    }
+
+    private void handleBanAllConfirmClick(Player player, int slot, InventoryClickEvent event) {
+        if (!player.hasPermission("playermanager.ban")) {
+            player.sendMessage(ChatColor.RED + plugin.getMessage("error.no-permission", "You don't have permission!"));
+            event.setCancelled(true);
+            return;
+        }
+
+        List<String> users = pendingBanAllUsers.get(player.getUniqueId());
+        String ip = lastTarget.get(player.getUniqueId());
+
+        if (users == null || users.isEmpty() || ip == null) {
+            plugin.getLogger().warning("Invalid session for player " + player.getName() + ": users=" + (users == null ? "null" : users.size()) + ", ip=" + ip);
+            player.sendMessage(ChatColor.RED + plugin.getMessage("error.invalid-session", "Invalid confirmation session."));
+            event.setCancelled(true);
+            player.closeInventory();
+            Bukkit.getScheduler().runTask(plugin, () -> openIPSearchGUI(player));
+            return;
+        }
+
+        event.setCancelled(true);
+
+        if (slot == 12) {
+            int bannedCount = 0;
+            for (String user : users) {
+                OfflinePlayer offline = Bukkit.getOfflinePlayer(user);
+                if (offline != null && !plugin.getPlayerDataConfig().getBoolean("players." + offline.getUniqueId() + ".banned", false)) {
+                    if (plugin.isAdminPlayer(offline)) {
+                        continue;
+                    }
+                    Bukkit.dispatchCommand(player, "ban " + user);
+                    plugin.updatePlayerBanStatus(offline.getUniqueId().toString(), true);
+                    bannedCount++;
+                }
+            }
+            player.sendMessage(ChatColor.YELLOW + plugin.getMessage("action.ban-users", "Banned %count% users on IP: %ip%")
+                    .replace("%count%", String.valueOf(bannedCount)).replace("%ip%", ip));
+            cachedSearchByIPResults.remove(ip);
+            pendingBanAllUsers.remove(player.getUniqueId());
+            player.closeInventory();
+            Bukkit.getScheduler().runTask(plugin, () -> openIPSearchGUI(player));
+        } else if (slot == 14) {
+            player.sendMessage(ChatColor.GREEN + plugin.getMessage("action.cancelled", "Action cancelled."));
+            pendingBanAllUsers.remove(player.getUniqueId());
+            IPResult ipResult = getIPResultByIP(ip);
+            player.closeInventory();
+            if (ipResult != null) {
+                Bukkit.getScheduler().runTask(plugin, () -> openIPDetails(player, ipResult));
+            } else {
+                player.sendMessage(ChatColor.RED + plugin.getMessage("error.invalid-ip", "IP data not found."));
+                Bukkit.getScheduler().runTask(plugin, () -> openIPSearchGUI(player));
+            }
+        } else if (slot == 22) {
+            pendingBanAllUsers.remove(player.getUniqueId());
+            IPResult ipResult = getIPResultByIP(ip);
+            player.closeInventory();
+            if (ipResult != null) {
+                Bukkit.getScheduler().runTask(plugin, () -> openIPDetails(player, ipResult));
+            } else {
+                player.sendMessage(ChatColor.RED + plugin.getMessage("error.invalid-ip", "IP data not found."));
+                Bukkit.getScheduler().runTask(plugin, () -> openIPSearchGUI(player));
+            }
+        }
+    }
+
     private void setLastOpenedMenu(UUID playerUUID, String menu) {
         lastOpenedMenu.put(playerUUID, menu);
     }
@@ -645,6 +797,16 @@ public class PlayerManagerIpGUI implements InventoryHolder, Listener {
     public void clearCache() {
         cachedIPResults.clear();
         cachedSearchByIPResults.clear();
+    }
+
+    private IPResult getIPResultByIP(String ip) {
+        IPResult result = cachedIPResults.stream()
+                .filter(r -> r.ip.equals(ip))
+                .findFirst()
+                .orElse(null);
+        if (result == null) {
+        }
+        return result;
     }
 
     @Override

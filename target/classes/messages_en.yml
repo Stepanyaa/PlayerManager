@@ -119,6 +119,14 @@ gui:
   no-results-lore: "Try changing the search query or filter"
   ip-search: "IP Search"
   ip-search-hint: "Left click: Search by IP"
+  confirm-ban-all-title: "Confirm Ban All Users on IP:"
+  confirm-info: "Users to ban (%count%):"
+  confirm-warning: "This will ban ALL users on this IP!"
+  confirm-ban: "Confirm Ban All"
+  click-to-confirm: "Click to confirm"
+  click-to-cancel: "Click to cancel"
+  refreshing: "Refreshing player list..."
+  refreshed: "Player list refreshed"
 punishment:
   ban: "&cBan"
   kick: "&cKick"
@@ -172,6 +180,9 @@ error:
   mute: "Mute"
   unban: "Unban"
   no-temp-plugin: "No temporary punishment plugin installed! «AdvancedBan,Litebans»"
+  no-users: "No users found on this IP."
+  invalid-session: "Invalid confirmation session."
+  search-failed: "Error during search!"
 command:
   usage: "&cUsage: /playermanager <gui | reload | reset | ban | kick | warn | mute | unban | teleport | inventory>"
   usage-gui: "&cUsage: /playermanager gui"
@@ -189,6 +200,9 @@ action:
   ban-users: "Banned %count% users on IP: %ip%"
   unban-users: "Unbanned %count% users on IP: %ip%"
   executed-quick: "Quick %command% executed for %player%"
+  cancelled: "Action cancelled."
+  wait: "Please wait before taking this action again!"
+  enter-ip: "Enter IP address in chat"
 update:
   available: "&eA new version of PlayerManager (%version%) is available at https://modrinth.com/plugin/playermanagers/versions"
 warning:

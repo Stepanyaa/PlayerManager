@@ -58,7 +58,7 @@ public class PlayerManager extends JavaPlugin implements Listener, CommandExecut
     private PlayerSearchGUI playerSearchGUI;
     private String language;
     private static final String MODRINTH_API_URL = "https://api.modrinth.com/v2/project/playermanagers/version";
-    private static final String CURRENT_VERSION = "1.0.6";
+    private static final String CURRENT_VERSION = "1.0.7";
     private String latestVersion = null;
     private final Set<UUID> notifiedAdmins = new HashSet<>();
     private static final String[] SUPPORTED_LANGUAGES = {"en", "ru"};

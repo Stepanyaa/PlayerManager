@@ -134,6 +134,14 @@ gui:
   no-results-lore: "Попробуйте изменить поисковый запрос или фильтр"
   ip-search: "Поиск IP-адресов"
   ip-search-hint: "ЛКМ: Поиск по IP"
+  confirm-ban-all-title: "Блокировка всех пользователей: "
+  confirm-info: "Пользователи для блокировки (%count%):"
+  confirm-warning: "Это заблокирует ВСЕХ пользователей на этом IP-адресе!"
+  confirm-ban: "Подтвердите блокировку всех"
+  click-to-confirm: "Нажмите для подтверждения"
+  click-to-cancel: "Нажмите для отмены"
+  refreshing: "Обновление списка игроков..."
+  refreshed: "Список игроков обновлён"
 punishment:
   ban: "&cБан"
   kick: "&cКик"
@@ -171,6 +179,9 @@ error:
   temp-plugin-missing: "Плагин временного бана/предупреждения/заглушения не установлен! Установите AdvancedBan или LiteBans."
   player-offline-quick: "Для быстрого действия требуется онлайн-игрок для %action%"
   no-temp-plugin: "Плагин временного наказания не установлен! «AdvancedBan,Litebans»"
+  no-users: "Пользователи на этом IP-адресе не найдены.."
+  invalid-session: "Недействительный сеанс подтверждения."
+  search-failed: "Ошибка при поиске!"
 command:
   usage: "&cИспользование: /playermanager <gui | reload | reset | ban | kick | warn | mute | unban | teleport | inventory>"
   usage-gui: "&cИспользование: /playermanager gui"
@@ -188,6 +199,9 @@ action:
   ban-users: "Заблокированно %count% игроков по IP-адресу: %ip%"
   unban-users: "Разблокированно %count% игроков по IP-адресу: %ip%"
   executed-quick: "Быстрая %command% выполнена для %player%"
+  cancelled: "Действие отменено."
+  wait: "Подождите перед повторным действием!"
+  enter-ip: "Введите IP-адрес в чат"
 update:
   available: "&eДоступна новая версия PlayerManager (%version%) на https://modrinth.com/plugin/playermanagers/versions"
 warning:

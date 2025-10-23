@@ -3,14 +3,14 @@
 
 ## A major plugin update v1.0.7 is out! 🚀
 
-![Paper](https://img.shields.io/badge/Paper-1.16.1%E2%80%931.21.8-success&logo=minecraft)     
-![Spigot](https://img.shields.io/badge/Spigot-1.16.1%E2%80%931.21.8-success&logo=minecraft)   
-![Purpur](https://img.shields.io/badge/Purpur-1.16.1%E2%80%931.21.8-success&logo=minecraft)
+![Paper](https://img.shields.io/badge/Paper-1.16.1%E2%80%931.21.10-success&logo=minecraft)     
+![Spigot](https://img.shields.io/badge/Spigot-1.16.1%E2%80%931.21.10-success&logo=minecraft)   
+![Purpur](https://img.shields.io/badge/Purpur-1.16.1%E2%80%931.21.10-success&logo=minecraft)
 
 ⚡ Fully compatible with   
-**Paper (1.16.1 – 1.21.8)**   
-**Spigot (1.16.1 – 1.21.8)**   
-**Purpur (1.16.1 – 1.21.8)**   
+**Paper  (1.16.1 – 1.21.10)**   
+**Spigot (1.16.1 – 1.21.10**   
+**Purpur (1.16.1 – 1.21.10)**   
 ❤️ This is my **first plugin**, crafted with love for the Minecraft community.
 
 ---

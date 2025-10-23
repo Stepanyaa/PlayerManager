@@ -1,7 +1,7 @@
 # PlayerManager ✨
 *A powerful and intuitive Minecraft plugin for efficient player management.*
 
-## A major plugin update v1.0.6 is out! 🚀
+## A major plugin update v1.0.7 is out! 🚀
 
 ![Paper](https://img.shields.io/badge/Paper-1.16.1%E2%80%931.21.8-success&logo=minecraft)     
 ![Spigot](https://img.shields.io/badge/Spigot-1.16.1%E2%80%931.21.8-success&logo=minecraft)   

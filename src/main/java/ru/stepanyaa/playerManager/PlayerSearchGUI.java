@@ -26,10 +26,10 @@ package ru.stepanyaa.playerManager;
 
 import java.text.SimpleDateFormat;
 import java.util.*;
-        import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.bukkit.*;
-        import org.bukkit.configuration.ConfigurationSection;
+import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -73,7 +73,12 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
     private final Map<UUID, String> lastTarget;
     private final Map<UUID, Long> lastFilterClick = new ConcurrentHashMap<>();
     private final Map<UUID, Long> lastRefreshClick = new ConcurrentHashMap<>();
-
+    private boolean isValidUUID(String str) {
+        if (str == null || str.isEmpty()) return false;
+        String clean = str.replace("-", "");
+        if (clean.length() < 32) return false;
+        return clean.matches("[0-9a-fA-F]{32}");
+    }
 
     @FunctionalInterface
     interface ChatAction {
@@ -426,126 +431,79 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
 
 
     private List<PlayerResult> getSearchResults(Player admin, String search) {
-        String searchLower = search.toLowerCase().trim();
-
-        if (!searchLower.equalsIgnoreCase(currentSearch)) {
-            cachedResults.clear();
-            unfilteredResults.clear();
-            currentSearch = searchLower;
-        }
-
-        if (!cachedResults.isEmpty()) {
-            return applyFilter(cachedResults);
-        }
-
         List<PlayerResult> results = new ArrayList<>();
-        Set<String> processedUUIDs = new HashSet<>();
-
-        for (Player onlinePlayer : Bukkit.getOnlinePlayers()) {
-            String uuid = onlinePlayer.getUniqueId().toString();
-            String name = onlinePlayer.getName();
-            processedUUIDs.add(uuid);
-
-            if (!searchLower.isEmpty() && !name.toLowerCase().contains(searchLower)) {
-                continue;
-            }
-            if (plugin.isAdminPlayer(onlinePlayer)) {
-                continue;
-            }
-
-            String path = "players." + uuid + ".";
-            PlayerResult result = new PlayerResult();
-            result.uuid = uuid;
-            result.name = name;
-            result.firstPlayed = plugin.getPlayerDataConfig().getLong(path + "first_played", onlinePlayer.getFirstPlayed());
-            result.lastLogin = plugin.getPlayerDataConfig().getLong(path + "last_login", onlinePlayer.getLastPlayed());
-            result.lastLogout = plugin.getPlayerDataConfig().getLong(path + "last_logout", onlinePlayer.getLastPlayed());
-            result.online = true;
-            result.banned = Bukkit.getBanList(BanList.Type.NAME).isBanned(name);
-            plugin.updatePlayerBanStatus(uuid, result.banned);
-            result.headTexture = plugin.getPlayerDataConfig().getString(path + "head_texture", "");
-
-            if (result.headTexture.isEmpty()) {
-                String newTexture = fetchHeadTexture(onlinePlayer);
-                if (!newTexture.isEmpty()) {
-                    result.headTexture = newTexture;
-                    plugin.getPlayerDataConfig().set(path + "head_texture", newTexture);
-                    plugin.savePlayerDataConfig();
-                }
-            }
-            results.add(result);
-        }
-
         ConfigurationSection playersSection = plugin.getPlayerDataConfig().getConfigurationSection("players");
-        if (playersSection != null) {
-            for (String uuid : playersSection.getKeys(false)) {
-                if (processedUUIDs.contains(uuid)) {
-                    continue;
+        if (playersSection == null) return results;
+
+        String lowerSearch = search.toLowerCase().replace("-", "");
+        boolean isUUIDSearch = isValidUUID(lowerSearch);
+
+        long maxInactivityDays = plugin.getConfig().getLong("max-inactivity-days", 30);
+        long maxInactivityMillis = maxInactivityDays * 24 * 60 * 60 * 1000L;
+        long currentTime = System.currentTimeMillis();
+
+        for (String uuid : playersSection.getKeys(false)) {
+            String path = "players." + uuid + ".";
+            String name = plugin.getPlayerDataConfig().getString(path + "name", "").toLowerCase();
+
+            long lastActivity = Math.max(
+                    plugin.getPlayerDataConfig().getLong(path + "last_login", 0L),
+                    plugin.getPlayerDataConfig().getLong(path + "last_logout", 0L)
+            );
+            if (lastActivity > 0 && (currentTime - lastActivity) > maxInactivityMillis) {
+                continue;
+            }
+
+            boolean matches = false;
+
+            if (isUUIDSearch) {
+                String cleanUUID = uuid.replace("-", "").toLowerCase();
+                if (cleanUUID.contains(lowerSearch)) {
+                    matches = true;
                 }
-                try {
-                    String name = plugin.getPlayerDataConfig().getString("players." + uuid + ".name", "");
-                    if (name.isEmpty()) {
-                        plugin.getLogger().warning("Skipping UUID " + uuid + ": empty name");
-                        continue;
-                    }
-                    if (!searchLower.isEmpty() && !name.toLowerCase().contains(searchLower)) {
-                        continue;
-                    }
-
-                    OfflinePlayer offlinePlayer = Bukkit.getOfflinePlayer(UUID.fromString(uuid));
-                    if (plugin.isAdminPlayer(offlinePlayer)) {
-                        continue;
-                    }
-
-                    String path = "players." + uuid + ".";
-                    PlayerResult result = new PlayerResult();
-                    result.uuid = uuid;
-                    result.name = name;
-                    result.firstPlayed = plugin.getPlayerDataConfig().getLong(path + "first_played", offlinePlayer.getFirstPlayed());
-                    result.lastLogin = plugin.getPlayerDataConfig().getLong(path + "last_login", offlinePlayer.getLastPlayed());
-                    result.lastLogout = plugin.getPlayerDataConfig().getLong(path + "last_logout", offlinePlayer.getLastPlayed());
-                    result.online = Bukkit.getPlayer(UUID.fromString(uuid)) != null;
-                    result.banned = Bukkit.getBanList(BanList.Type.NAME).isBanned(name);
-                    plugin.updatePlayerBanStatus(uuid, result.banned);
-                    result.headTexture = plugin.getPlayerDataConfig().getString(path + "head_texture", "");
-
-                    if (result.headTexture.isEmpty()) {
-                        String newTexture = fetchHeadTexture(offlinePlayer);
-                        if (!newTexture.isEmpty()) {
-                            result.headTexture = newTexture;
-                            plugin.getPlayerDataConfig().set(path + "head_texture", newTexture);
-                            plugin.savePlayerDataConfig();
-                        }
-                    }
-                    results.add(result);
-                } catch (Exception e) {
-                    plugin.getLogger().warning("Error processing player UUID " + uuid + ": " + e.getMessage());
+            } else {
+                if (name.contains(lowerSearch)) {
+                    matches = true;
                 }
             }
-        } else {
-            plugin.getLogger().warning("No players section in player_data.yml, creating new section");
-            plugin.getPlayerDataConfig().createSection("players");
-            plugin.savePlayerDataConfig();
-            Bukkit.getScheduler().runTask(plugin, () -> {
-                if (admin.isOnline() && playersInGUI.contains(admin.getUniqueId())) {
-                    admin.sendMessage(ChatColor.RED + plugin.getMessage("error.no-players-data", "No player data available!"));
-                    ItemStack noResultsItem = new ItemStack(Material.BARRIER);
-                    ItemMeta meta = noResultsItem.getItemMeta();
-                    if (meta != null) {
-                        meta.setDisplayName(ChatColor.RED + plugin.getMessage("gui.no-results", "No players found"));
-                        noResultsItem.setItemMeta(meta);
-                    }
-                    inventory.setItem(22, noResultsItem);
-                    admin.updateInventory();
-                }
-            });
+
+            if (matches && currentFilter != Filter.ALL) {
+                OfflinePlayer offline = Bukkit.getOfflinePlayer(UUID.fromString(uuid));
+                boolean online = offline.isOnline();
+                boolean banned = offline.isBanned();
+
+                if (currentFilter == Filter.ONLINE && !online) matches = false;
+                if (currentFilter == Filter.OFFLINE && online) matches = false;
+                if (currentFilter == Filter.BANNED && !banned) matches = false;
+            }
+
+            if (matches) {
+                PlayerResult result = new PlayerResult();
+                result.uuid = uuid;
+                result.name = plugin.getPlayerDataConfig().getString(path + "name", "Unknown");
+                result.firstPlayed = plugin.getPlayerDataConfig().getLong(path + "first_played", 0L);
+                result.lastLogin = plugin.getPlayerDataConfig().getLong(path + "last_login", 0L);
+                result.lastLogout = plugin.getPlayerDataConfig().getLong(path + "last_logout", 0L);
+                result.online = Bukkit.getPlayer(UUID.fromString(uuid)) != null;
+                result.banned = Bukkit.getBanList(org.bukkit.BanList.Type.NAME).isBanned(result.name);
+                result.headTexture = plugin.getPlayerDataConfig().getString(path + "head_texture", "");
+                results.add(result);
+            }
         }
 
-        results.sort(Comparator.comparing(r -> r.name.toLowerCase()));
-        unfilteredResults = new ArrayList<>(results);
-        cachedResults = new ArrayList<>(results);
+        results.sort((a, b) -> {
+            if (currentFilter == Filter.ONLINE || currentFilter == Filter.OFFLINE) {
+                return Boolean.compare(b.online, a.online);
+            } else if (currentFilter == Filter.BANNED) {
+                return Boolean.compare(b.banned, a.banned);
+            } else {
+                return a.name.compareToIgnoreCase(b.name);
+            }
+        });
 
-        return applyFilter(results);
+        cachedResults = results;
+        unfilteredResults = new ArrayList<>(results);
+        return results;
     }
 
 
@@ -1546,20 +1504,23 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
                 if (event.getClick() == ClickType.LEFT) {
                     player.closeInventory();
                     String cancelText = plugin.getMessage("gui.cancel", "[Cancel]");
-                    TextComponent message = new TextComponent(ChatColor.YELLOW + plugin.getMessage("gui.enter-search", "Enter name to search: ") + " ");
+                    TextComponent message = new TextComponent(ChatColor.YELLOW + plugin.getMessage("gui.enter-search", "Enter name or UUID: ") + " ");
                     TextComponent cancel = new TextComponent(ChatColor.RED + cancelText);
                     cancel.setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/playermanager reset"));
                     message.addExtra(cancel);
                     player.spigot().sendMessage(message);
+
                     pendingActions.put(player.getUniqueId(), (msg, p) -> {
                         Bukkit.getScheduler().runTask(plugin, () -> {
                             String input = ChatColor.stripColor(msg.trim());
+
                             String cancelTextRu = ChatColor.stripColor(plugin.getMessage("gui.cancel", "[Cancel]").replaceAll("[\\[\\]]", ""));
                             String cancelTextEn = "Cancel";
                             if (input.equalsIgnoreCase(cancelTextRu) || input.equalsIgnoreCase(cancelTextEn)) {
                                 resetSearch(p);
                                 return;
                             }
+
                             currentSearch = input;
                             currentPage = 0;
                             lastPage.put(p.getUniqueId(), 0);
@@ -1568,6 +1529,7 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
                             playersInGUI.add(p.getUniqueId());
                             setLastOpenedMenu(p.getUniqueId(), "search");
                             plugin.savePlayerMenuState(p);
+
                             Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
                                 List<PlayerResult> results = getSearchResults(p, currentSearch);
                                 Bukkit.getScheduler().runTask(plugin, () -> {
@@ -1583,6 +1545,7 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
                 } else if (event.getClick() == ClickType.RIGHT) {
                     resetSearch(player);
                 }
+                event.setCancelled(true);
                 return;
             }
             else if (slot == 45 && currentPage > 0) {
@@ -1663,6 +1626,18 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
             handleBanDurationClick(player, slot, event);
         } else if (currentMenu.equals("ban_reason")) {
             handleTemporaryBanReasonClick(player, slot, event);
+        } else if (currentMenu.equals("mute_duration")) {
+            handleMuteDurationClick(player, slot, event);
+        } else if (currentMenu.equals("mute_reason")) {
+            handleMuteReasonClick(player, slot, event);
+        } else if (currentMenu.equals("jail")) {
+            handleJailClick(player, slot, event);
+        } else if (currentMenu.equals("warn_duration")) {
+            handleWarnDurationClick(player, slot, event);
+        } else if (currentMenu.equals("warn_reason")) {
+            handleWarnReasonClick(player, slot, event);
+        } else if (currentMenu.equals("kick_reason")) {
+            handleKickReasonClick(player, slot, event);
         }
     }
 

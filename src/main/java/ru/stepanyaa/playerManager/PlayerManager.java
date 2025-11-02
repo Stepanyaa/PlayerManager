@@ -49,6 +49,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonParser;
+import org.bstats.bukkit.Metrics;
 
 public class PlayerManager extends JavaPlugin implements Listener, CommandExecutor, TabCompleter {
     private File playerDataFile;
@@ -58,7 +59,7 @@ public class PlayerManager extends JavaPlugin implements Listener, CommandExecut
     private PlayerSearchGUI playerSearchGUI;
     private String language;
     private static final String MODRINTH_API_URL = "https://api.modrinth.com/v2/project/playermanagers/version";
-    private static final String CURRENT_VERSION = "1.0.7";
+    private static final String CURRENT_VERSION = "1.1.0";
     private String latestVersion = null;
     private final Set<UUID> notifiedAdmins = new HashSet<>();
     private static final String[] SUPPORTED_LANGUAGES = {"en", "ru"};
@@ -71,6 +72,7 @@ public class PlayerManager extends JavaPlugin implements Listener, CommandExecut
     public void onEnable() {
         this.saveDefaultConfig();
         this.reloadConfig();
+        this.loadMessages();
         this.language = getConfig().getString("language", "en");
         if (!Arrays.asList(SUPPORTED_LANGUAGES).contains(this.language)) {
             getLogger().warning("Unsupported language '" + this.language + "' in config.yml, defaulting to 'en'");
@@ -89,7 +91,7 @@ public class PlayerManager extends JavaPlugin implements Listener, CommandExecut
             this.playerDataConfig.createSection("players");
             this.savePlayerDataConfig();
         }
-        this.loadMessages();
+
         this.updateMessagesFiles();
         this.updateConfigFile();
         this.playerSearchGUI = new PlayerSearchGUI(this);
@@ -130,10 +132,68 @@ public class PlayerManager extends JavaPlugin implements Listener, CommandExecut
                 .replace("%lang%", language));
 
         this.isFirstEnable = false;
+        int pluginId = 27779;
+        Metrics metrics = new Metrics(this, pluginId);
     }
 
     private void schedulePlayerDataCleanup() {
+        long intervalHours = Math.max(1, getConfig().getLong("cleanup-interval-hours", 24));
+        long intervalTicks = intervalHours * 20 * 60 * 60;
 
+        Bukkit.getScheduler().runTaskAsynchronously(this, this::runCleanupTask);
+
+        if (intervalHours > 0) {
+            Bukkit.getScheduler().runTaskTimerAsynchronously(this, this::runCleanupTask, intervalTicks, intervalTicks);
+        }
+    }
+
+    private void runCleanupTask() {
+        long maxInactivityDays = getConfig().getLong("max-inactivity-days", 30);
+        if (maxInactivityDays <= 0) {
+            getLogger().info("Player cleanup disabled (max-inactivity-days <= 0)");
+            return;
+        }
+
+        long maxInactivityMillis = maxInactivityDays * 24L * 60 * 60 * 1000;
+        long currentTime = System.currentTimeMillis();
+        int removedCount = 0;
+
+        ConfigurationSection playersSection = playerDataConfig.getConfigurationSection("players");
+        if (playersSection == null) return;
+
+        List<String> toRemove = new ArrayList<>();
+
+        for (String uuid : playersSection.getKeys(false)) {
+            String path = "players." + uuid + ".";
+            long lastActivity = Math.max(
+                    playerDataConfig.getLong(path + "last_login", 0L),
+                    playerDataConfig.getLong(path + "last_logout", 0L)
+            );
+
+            if (lastActivity == 0 || (currentTime - lastActivity) <= maxInactivityMillis) {
+                continue;
+            }
+
+            String name = playerDataConfig.getString(path + "name", "Unknown");
+            OfflinePlayer offlinePlayer = Bukkit.getOfflinePlayer(UUID.fromString(uuid));
+
+            if (isAdminPlayer(offlinePlayer)) {
+                continue;
+            }
+
+            toRemove.add(uuid);
+            long inactiveDays = (currentTime - lastActivity) / (24 * 60 * 60 * 1000L);
+        }
+
+        for (String uuid : toRemove) {
+            playerDataConfig.set("players." + uuid, null);
+            removedCount++;
+        }
+
+        if (removedCount > 0) {
+            savePlayerDataConfig();
+            getLogger().info("Cleanup completed: Removed " + removedCount + " inactive player(s).");
+        }
     }
 
 
@@ -178,8 +238,7 @@ public class PlayerManager extends JavaPlugin implements Listener, CommandExecut
                             int highestPatch = Integer.parseInt(highestParts[2]);
                             if (currentMajor == highestMajor && currentMinor == highestMinor && highestPatch == currentPatch + 1) {
                                 latestVersion = highestVersion;
-                                String consoleMessage = "*** UPDATE AVAILABLE *** A new version of PlayerManager (" + latestVersion + ") is available at https://modrinth.com/plugin/playermanagers/versions";
-                                getLogger().info(consoleMessage);
+                                getLogger().warning("*** UPDATE AVAILABLE *** A new version of PlayerManagers (" + latestVersion + ") is available at:\nhttps://modrinth.com/plugin/playermanagers/versions");
                             }
                         }
                     }
@@ -426,10 +485,6 @@ public class PlayerManager extends JavaPlugin implements Listener, CommandExecut
             String currentFileVersion = messagesConfig.getString("version", "0.0.0");
             if (!currentFileVersion.equals(CURRENT_VERSION)) {
                 if (getResource(messagesFileName) != null) {
-                    File backupFile = new File(getDataFolder(), messagesFileName + ".backup");
-                    if (messagesFile.renameTo(backupFile)) {
-                        getLogger().info("Backed up old messages file to: " + messagesFileName + ".backup");
-                    }
                     saveResource(messagesFileName, true);
                     messagesConfig = YamlConfiguration.loadConfiguration(messagesFile);
                     messagesConfig.set("version", CURRENT_VERSION);

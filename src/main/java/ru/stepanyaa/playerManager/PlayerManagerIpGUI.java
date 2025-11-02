@@ -24,6 +24,8 @@
  */
 package ru.stepanyaa.playerManager;
 
+import net.md_5.bungee.api.chat.ClickEvent;
+import net.md_5.bungee.api.chat.TextComponent;
 import org.bukkit.BanList;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -436,13 +438,34 @@ public class PlayerManagerIpGUI implements InventoryHolder, Listener {
                     player.sendMessage(ChatColor.RED + plugin.getMessage("error.no-permission", "You don't have permission!"));
                     return;
                 }
-                player.sendMessage(ChatColor.YELLOW + plugin.getMessage("action.enter-ip", "Enter IP address in chat"));
+
+                player.closeInventory();
+                String cancelText = plugin.getMessage("gui.cancel", "[Cancel]");
+                TextComponent messageComponent = new TextComponent(ChatColor.YELLOW + plugin.getMessage("action.enter-ip", "Enter IP address in chat") + " ");
+                TextComponent cancel = new TextComponent(ChatColor.RED + cancelText);
+                cancel.setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/playermanager reset"));
+                messageComponent.addExtra(cancel);
+                player.spigot().sendMessage(messageComponent);
+
                 plugin.getPlayerDataConfig().set("admin." + player.getUniqueId() + ".pending_action", "ip_search");
                 plugin.savePlayerDataConfig();
-                player.closeInventory();
-                searchGUI.addPendingAction(player.getUniqueId(), (message, p) -> {
-                    String ip = message.trim();
-                    openSearchGUIByIP(p, ip);
+
+                searchGUI.addPendingAction(player.getUniqueId(), (inputMessage, p) -> {
+                    Bukkit.getScheduler().runTask(plugin, () -> {
+                        String input = ChatColor.stripColor(inputMessage.trim());
+                        String cancelTextRu = ChatColor.stripColor(plugin.getMessage("gui.cancel", "[Cancel]").replaceAll("[\\[\\]]", ""));
+                        String cancelTextEn = "Cancel";
+
+                        if (input.equalsIgnoreCase(cancelTextRu) || input.equalsIgnoreCase(cancelTextEn)) {
+                            plugin.getPlayerDataConfig().set("admin." + p.getUniqueId() + ".pending_action", null);
+                            plugin.savePlayerDataConfig();
+                            p.sendMessage(ChatColor.YELLOW + plugin.getMessage("gui.search-cancelled", "Search cancelled"));
+                            return;
+                        }
+
+                        String ip = input;
+                        openSearchGUIByIP(p, ip);
+                    });
                 });
             }
             else if (slot >= 9 && slot < 45) {

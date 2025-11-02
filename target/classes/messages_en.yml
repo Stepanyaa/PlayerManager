@@ -51,7 +51,7 @@ gui:
   actions-lmb-jail: "LMB: Open jail menu"
   actions-lmb-unjail: "LMB: Quick unjail"
   actions-shift-rmb: "&7Shift+RMB: Quick action"
-  enter-search: "&eEnter name to search: "
+  enter-search: "Enter name or UUID to search: "
   cancel: "&c[Cancel]"
   punishment-prefix: "&cPunishments: "
   jail-prefix: "&cJail: "

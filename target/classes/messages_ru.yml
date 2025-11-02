@@ -51,7 +51,7 @@ gui:
   actions-lmb-jail: "ЛКМ: Открыть меню тюрьмы"
   actions-lmb-unjail: "ЛКМ: Быстро освободить"
   actions-shift-rmb: "&7Shift+ПКМ: Быстрое действие"
-  enter-search: "&eВведите имя для поиска: "
+  enter-search: "Введите имя или UUID для поиска: "
   cancel: "&c[Отмена]"
   punishment-prefix: "&cНаказания: "
   jail-prefix: "&cТюрьма: "
@@ -203,7 +203,7 @@ action:
   wait: "Подождите перед повторным действием!"
   enter-ip: "Введите IP-адрес в чат"
 update:
-  available: "&eДоступна новая версия PlayerManager (%version%) на https://modrinth.com/plugin/playermanagers/versions"
+  available: "&eДоступна новая версия PlayerManager (%latestVersion%) на https://modrinth.com/plugin/playermanagers/versions"
 warning:
   max-inactivity-too-high: "Предупреждение: max-inactivity-days (%days%) установлено слишком высоко! Рекомендуемый максимум — 365 дней."
   messages-file-up-to-date: "Файл сообщений %file% актуален (версия %version%)."

@@ -1,15 +1,15 @@
 # PlayerManager ✨
 *A powerful and intuitive Minecraft plugin for efficient player management.*
 
-## A major plugin update v1.0.7 is out! 🚀
+## A major plugin update v1.1.0 is out! 🚀
 
 ![Paper](https://img.shields.io/badge/Paper-1.16.1%E2%80%931.21.10-success&logo=minecraft)     
 ![Spigot](https://img.shields.io/badge/Spigot-1.16.1%E2%80%931.21.10-success&logo=minecraft)   
 ![Purpur](https://img.shields.io/badge/Purpur-1.16.1%E2%80%931.21.10-success&logo=minecraft)
 
 ⚡ Fully compatible with   
-**Paper  (1.16.1 – 1.21.10)**   
-**Spigot (1.16.1 – 1.21.10**   
+**Paper (1.16.1 – 1.21.10)**   
+**Spigot (1.16.1 – 1.21.10)**   
 **Purpur (1.16.1 – 1.21.10)**   
 ❤️ This is my **first plugin**, crafted with love for the Minecraft community.
 
@@ -132,3 +132,7 @@ This is my **first plugin**, feedback is very welcome!
 Это мой **первый плагин**, поэтому обратная связь очень важна!  
 - 💬 Вступай в [Discord](https://discord.gg/72mzBTckKC)  
 - 🐛 Сообщай о багах или предлагай идеи в [GitHub Issues](https://github.com/Stepanyaa/PlayerManager/issues)
+
+## **bStats**
+
+[![bStats](https://bstats.org/signatures/bukkit/PlayerManager_Stepanyaa.svg)](https://bstats.org/plugin/bukkit/PlayerManager_Stepanyaa/27779)

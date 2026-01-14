@@ -2,7 +2,7 @@
  * MIT License
  *
  * PlayerManager
- * Copyright (c) 2025 Stepanyaa
+ * Copyright (c) 2026 Stepanyaa
 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -28,6 +28,8 @@ import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
+import net.md_5.bungee.api.chat.ComponentBuilder;
+import net.md_5.bungee.api.chat.HoverEvent;
 import org.bukkit.*;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.enchantments.Enchantment;
@@ -213,7 +215,7 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
                     needsSave = true;
                 }
                 result.headTexture = plugin.getPlayerDataConfig().getString(path + "head_texture", "");
-                if (result.headTexture.isEmpty()) {
+                if (result.headTexture.isEmpty() && result.online) {
                     String newTexture = fetchHeadTexture(offlinePlayer);
                     if (!newTexture.isEmpty()) {
                         result.headTexture = newTexture;
@@ -231,6 +233,9 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
     }
 
     private String fetchHeadTexture(OfflinePlayer player) {
+        if (!player.isOnline()) {
+            return "";
+        }
         String uuidStr = player.getUniqueId().toString();
         String cachedTexture = plugin.getPlayerDataConfig().getString("players." + uuidStr + ".head_texture", "");
 
@@ -531,7 +536,7 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
         lore.add("");
         lore.add(plugin.getMessage("gui.actions", "&7Left click: Menu | Right click: Teleport | Shift+Right click: Punishments"));
         meta.setLore(lore);
-        if (!result.headTexture.isEmpty()) {
+        if (result.online && !result.headTexture.isEmpty()) {
             try {
                 GameProfile profile = new GameProfile(UUID.fromString(result.uuid), null);
                 profile.getProperties().put("textures", new Property("textures", result.headTexture));
@@ -540,9 +545,10 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
                 profileField.set(meta, profile);
             } catch (Exception e) {
             }
-        } else {
+        } else if (result.online) {
             meta.setOwningPlayer(offlinePlayer);
         }
+
         head.setItemMeta(meta);
         return head;
     }
@@ -581,7 +587,6 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
         }
         return filteredResults;
     }
-
     public void openPlayerMenu(Player player, PlayerResult result) {
         if (!player.hasPermission("playermanager.admin") && !player.hasPermission("playermanager.gui")) {
             player.sendMessage(ChatColor.RED + plugin.getMessage("error.no-permission", "You don't have permission!"));
@@ -610,6 +615,10 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
             ItemStack teleportItem = new ItemStack(Material.ENDER_PEARL);
             ItemMeta teleportMeta = teleportItem.getItemMeta();
             teleportMeta.setDisplayName(ChatColor.GREEN + plugin.getMessage("gui.teleport", "Teleport"));
+            List<String> teleportLore = new ArrayList<>();
+            teleportLore.add(ChatColor.GRAY + plugin.getMessage("gui.teleport-lmb","Left click: Teleport to player"));
+            teleportLore.add(ChatColor.GRAY + plugin.getMessage("gui.teleport-rmb","Right click: Bring player to you"));
+            teleportMeta.setLore(teleportLore);
             teleportItem.setItemMeta(teleportMeta);
             playerMenu.setItem(11, teleportItem);
         }
@@ -1657,90 +1666,6 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
             }
             ipGUI.openIPSearchGUI(player);
             return;
-        }
-        if (slot == 4) {
-            if (event.getClick() == ClickType.LEFT) {
-                player.closeInventory();
-                String cancelText = plugin.getMessage("gui.cancel", "[Cancel]");
-                TextComponent message = new TextComponent(ChatColor.YELLOW + plugin.getMessage("gui.enter-search", "Enter name to search: ") + " ");
-                TextComponent cancel = new TextComponent(ChatColor.RED + cancelText);
-                cancel.setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/pm reset"));
-                message.addExtra(cancel);
-                player.spigot().sendMessage(message);
-                pendingActions.put(player.getUniqueId(), (msg, p) -> {
-                    Bukkit.getScheduler().runTask(plugin, () -> {
-                        String input = ChatColor.stripColor(msg.trim());
-                        String cancelTextRu = ChatColor.stripColor(plugin.getMessage("gui.cancel", "[Cancel]").replaceAll("[\\[\\]]", ""));
-                        String cancelTextEn = "Cancel";
-                        if (input.equalsIgnoreCase(cancelTextRu) || input.equalsIgnoreCase(cancelTextEn)) {
-                            resetSearch(p);
-                            return;
-                        }
-                        currentSearch = input;
-                        currentPage = 0;
-                        lastPage.put(p.getUniqueId(), 0);
-                        cachedResults.clear();
-                        unfilteredResults.clear();
-
-                        inventory = Bukkit.createInventory(this, 54, plugin.getMessage("gui.title", "Player Management"));
-                        ItemStack loadingItem = new ItemStack(Material.REDSTONE);
-                        ItemMeta loadingMeta = loadingItem.getItemMeta();
-                        if (loadingMeta != null) {
-                            loadingMeta.setDisplayName(ChatColor.YELLOW + plugin.getMessage("gui.loading", "Loading..."));
-                            List<String> lore = new ArrayList<>();
-                            lore.add(ChatColor.GRAY + "Please wait...");
-                            loadingMeta.setLore(lore);
-                            loadingItem.setItemMeta(loadingMeta);
-                        }
-                        inventory.setItem(4, loadingItem);
-                        p.openInventory(inventory);
-                        playersInGUI.add(p.getUniqueId());
-                        setLastOpenedMenu(p.getUniqueId(), "search");
-                        plugin.savePlayerMenuState(p);
-
-                        BukkitRunnable loadingAnimation = new BukkitRunnable() {
-                            int dots = 0;
-                            @Override
-                            public void run() {
-                                if (!p.isOnline() || !playersInGUI.contains(p.getUniqueId())) {
-                                    cancel();
-                                    return;
-                                }
-                                dots = (dots + 1) % 4;
-                                StringBuilder dotString = new StringBuilder(ChatColor.YELLOW + plugin.getMessage("gui.loading", "Loading"));
-                                for (int i = 0; i < dots; i++) dotString.append(".");
-                                ItemMeta meta = loadingItem.getItemMeta();
-                                if (meta != null) {
-                                    meta.setDisplayName(dotString.toString());
-                                    loadingItem.setItemMeta(meta);
-                                }
-                                inventory.setItem(4, loadingItem);
-                                p.updateInventory();
-                            }
-                        };
-                        loadingAnimation.runTaskTimer(plugin, 0L, 10L);
-                        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
-                            List<PlayerResult> results = getSearchResults(p, currentSearch);
-                            Bukkit.getScheduler().runTask(plugin, () -> {
-                                if (p.isOnline() && playersInGUI.contains(p.getUniqueId())) {
-                                    loadingAnimation.cancel();
-                                    setupSearchGUI(p, results);
-                                    p.updateInventory();
-                                    pendingActions.remove(p.getUniqueId());
-                                    if (results.isEmpty()) {
-                                        p.sendMessage(ChatColor.RED + plugin.getMessage("gui.no-results", "No players found for query: " + input));
-                                    }
-                                } else {
-                                    loadingAnimation.cancel();
-                                }
-                            });
-                        });
-                    });
-                });
-            } else if (event.getClick() == ClickType.RIGHT) {
-                resetSearch(player);
-            }
-            return;
         } else if (slot == 0) {
             Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
                 List<PlayerResult> results = getSearchResults(player, currentSearch);
@@ -1893,10 +1818,18 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
                 player.sendMessage(ChatColor.RED + plugin.getMessage("error.player-offline", "Player is offline."));
                 return;
             }
-            Bukkit.dispatchCommand(player, "tp " + result.name);
-            player.sendMessage(ChatColor.YELLOW + plugin.getMessage("action.executed", "Executed: %command% for %player%")
-                    .replace("%command%", "tp")
-                    .replace("%player%", result.name));
+            ClickType click = event.getClick();
+            Player target = Bukkit.getPlayer(result.name);
+            if (target == null) return;
+
+            if (click == ClickType.LEFT) {
+                Bukkit.dispatchCommand(player, "tp " + result.name);
+                player.sendMessage(ChatColor.GREEN + plugin.getMessage("action.teleported-to", "Teleported to %player%").replace("%player%", result.name));
+            } else if (click == ClickType.RIGHT) {
+                Bukkit.dispatchCommand(player, "tp " + result.name + " " + player.getName());
+                player.sendMessage(ChatColor.GREEN + plugin.getMessage("action.teleported-player-to-you", "Teleported %player% to you").replace("%player%", result.name));
+                target.sendMessage(ChatColor.YELLOW + plugin.getMessage("action.you-were-teleported", "You were teleported by %admin%").replace("%admin%", player.getName()));
+            }
             player.closeInventory();
         } else if (slot == 12) {
             if (!getConfigValue("features.punishment-system")) {
@@ -2310,14 +2243,14 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
                                     plugin.getPlayerDataConfig().set("players." + result.uuid + ".pending_action", null);
                                     plugin.savePlayerDataConfig();
                                     HandlerList.unregisterAll(this);
-                                    openMuteDurationGUI(player, result);
+                                    openWarnDurationGUI(player, result);
                                     return;
                                 }
                                 Bukkit.getScheduler().runTask(plugin, () -> {
-                                    plugin.getPlayerDataConfig().set("players." + result.uuid + ".pending_mute_duration", customDuration);
+                                    plugin.getPlayerDataConfig().set("players." + result.uuid + ".pending_warn_duration", customDuration);
                                     plugin.getPlayerDataConfig().set("players." + result.uuid + ".pending_action", null);
                                     plugin.savePlayerDataConfig();
-                                    openMuteReasonGUI(player, result, customDuration);
+                                    openWarnReasonGUI(player, result, customDuration);
                                 });
                                 HandlerList.unregisterAll(this);
                             }
@@ -2326,13 +2259,14 @@ public class PlayerSearchGUI implements Listener, InventoryHolder {
                 }
             }.runTaskLater(plugin, 1L);
         } else {
-            plugin.getPlayerDataConfig().set("players." + result.uuid + ".pending_mute_duration", duration);
+            plugin.getPlayerDataConfig().set("players." + result.uuid + ".pending_warn_duration", duration);
             plugin.savePlayerDataConfig();
-            openMuteReasonGUI(player, result, duration);
+            openWarnReasonGUI(player, result, duration);
         }
 
         refreshOpenGUIs();
     }
+
 
     private void handleWarnDurationClick(Player player, int slot, InventoryClickEvent event) {
         PlayerResult result = playerMenuTargets.get(player.getUniqueId());

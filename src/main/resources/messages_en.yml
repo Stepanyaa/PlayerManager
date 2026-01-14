@@ -15,6 +15,8 @@ gui:
   player-menu-prefix: "&6Player Menu: "
   info: "&eInformation"
   teleport: "&aTeleport"
+  teleport-lmb: "Left click: Teleport to player"
+  teleport-rmb: "Right click: Bring player to you"
   inspect-inventory: "&bInspect Inventory"
   ender-chest: "&dInspect Ender Chest"
   punishments: "&cPunishments"
@@ -203,6 +205,9 @@ action:
   cancelled: "Action cancelled."
   wait: "Please wait before taking this action again!"
   enter-ip: "Enter IP address in chat"
+  action.teleported-to: "Teleported to &e%player%&a!"
+  action.teleported-player-to-you: "Teleported &e%player% &ato you!"
+  action.you-were-teleported: "%admin% &ateleported you to their location."
 update:
   available: "&eA new version of PlayerManager (%version%) is available at https://modrinth.com/plugin/playermanagers/versions"
 warning:

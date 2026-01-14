@@ -2,7 +2,7 @@
 # If you want to help translate PlayerManager into your language Join our Discord https://discord.gg/72mzBTckKC and check the #translations channel
 
 # Plugin info
-config-version: "1.1.0"
+config-version: "1.1.1"
 language: "en"
 
 # Feature toggles

@@ -15,6 +15,8 @@ gui:
   player-menu-prefix: "&6Меню игрока: "
   info: "&eИнформация"
   teleport: "&aТелепорт"
+  teleport-lmb: "Лкм: телепортироваться к игроку"
+  teleport-rmb: "Пкм: переместить игрока к себе"
   inspect-inventory: "&bОсмотреть инвентарь"
   ender-chest: "&dОсмотреть эндер-сундук"
   punishments: "&cНаказания"
@@ -202,6 +204,9 @@ action:
   cancelled: "Действие отменено."
   wait: "Подождите перед повторным действием!"
   enter-ip: "Введите IP-адрес в чат"
+  action.teleported-to: "Телепортировался к %player%!"
+  action.teleported-player-to-you: "Телепортировался к %player%!"
+  action.you-were-teleported: "%admin% тeлепортировал вас к себе."
 update:
   available: "&eДоступна новая версия PlayerManager (%latestVersion%) на https://modrinth.com/plugin/playermanagers/versions"
 warning:

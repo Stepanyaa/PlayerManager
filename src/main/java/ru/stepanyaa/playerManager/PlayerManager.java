@@ -2,7 +2,7 @@
  * MIT License
  *
  * PlayerManager
- * Copyright (c) 2025 Stepanyaa
+ * Copyright (c) 2026 Stepanyaa
 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -26,9 +26,11 @@ package ru.stepanyaa.playerManager;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.function.BiConsumer;
 import java.util.stream.Collectors;
@@ -58,8 +60,8 @@ public class PlayerManager extends JavaPlugin implements Listener, CommandExecut
     private FileConfiguration messagesConfig;
     private PlayerSearchGUI playerSearchGUI;
     private String language;
-    private static final String MODRINTH_API_URL = "https://api.modrinth.com/v2/project/playermanagers/version";
-    private static final String CURRENT_VERSION = "1.1.0";
+    private static final String MODRINTH_API_URL = "https://api.modrinth.com/v2/project/player_manager/version";
+    private static final String CURRENT_VERSION = "1.1.1";
     private String latestVersion = null;
     private final Set<UUID> notifiedAdmins = new HashSet<>();
     private static final String[] SUPPORTED_LANGUAGES = {"en", "ru"};
@@ -72,7 +74,7 @@ public class PlayerManager extends JavaPlugin implements Listener, CommandExecut
     public void onEnable() {
         this.saveDefaultConfig();
         this.reloadConfig();
-        this.loadMessages();
+
         this.language = getConfig().getString("language", "en");
         if (!Arrays.asList(SUPPORTED_LANGUAGES).contains(this.language)) {
             getLogger().warning("Unsupported language '" + this.language + "' in config.yml, defaulting to 'en'");
@@ -91,7 +93,7 @@ public class PlayerManager extends JavaPlugin implements Listener, CommandExecut
             this.playerDataConfig.createSection("players");
             this.savePlayerDataConfig();
         }
-
+        this.loadMessages();
         this.updateMessagesFiles();
         this.updateConfigFile();
         this.playerSearchGUI = new PlayerSearchGUI(this);
@@ -238,7 +240,7 @@ public class PlayerManager extends JavaPlugin implements Listener, CommandExecut
                             int highestPatch = Integer.parseInt(highestParts[2]);
                             if (currentMajor == highestMajor && currentMinor == highestMinor && highestPatch == currentPatch + 1) {
                                 latestVersion = highestVersion;
-                                getLogger().warning("*** UPDATE AVAILABLE *** A new version of PlayerManagers (" + latestVersion + ") is available at:\nhttps://modrinth.com/plugin/playermanagers/versions");
+                                getLogger().warning("*** UPDATE AVAILABLE *** A new version of PlayerManagers (" + latestVersion + ") is available at:\nhttps://modrinth.com/plugin/player_manager/versions");
                             }
                         }
                     }
@@ -299,29 +301,41 @@ public class PlayerManager extends JavaPlugin implements Listener, CommandExecut
         if (!configFile.exists()) {
             saveResource("config.yml", false);
             getLogger().info(getMessage("warning.config-file-create", "Created config file: config.yml"));
-        }
-        YamlConfiguration existingConfig = YamlConfiguration.loadConfiguration(configFile);
-        String currentFileVersion = existingConfig.getString("config-version", "0.0.0");
-        if (currentFileVersion.equals(CURRENT_VERSION)) {
-            if (isFirstEnable) {
-                getLogger().info(getMessage("warning.config-file-up-to-date", "Config file config.yml is up-to-date (version %version%).")
-                        .replace("%version%", CURRENT_VERSION));
-            }
             return;
         }
-        if (getResource("config.yml") != null) {
-            try {
-                saveResource("config.yml", true);
-                getLogger().info(getMessage("warning.config-file-updated", "Updated config.yml to version %version%.")
-                        .replace("%version%", CURRENT_VERSION));
-                YamlConfiguration newConfig = YamlConfiguration.loadConfiguration(configFile);
-                newConfig.set("config-version", CURRENT_VERSION);
-                newConfig.save(configFile);
-            } catch (Exception e) {
-                getLogger().warning("Failed to update config.yml: " + e.getMessage());
-            }
-        } else {
+
+        FileConfiguration currentConfig = YamlConfiguration.loadConfiguration(configFile);
+        String currentVersion = currentConfig.getString("config-version", "0");
+
+        InputStream defaultStream = getResource("config.yml");
+        if (defaultStream == null) {
             getLogger().warning(getMessage("warning.config-file-not-found", "Resource config.yml not found in plugin!"));
+            return;
+        }
+
+        FileConfiguration defaultConfig = YamlConfiguration.loadConfiguration(new InputStreamReader(defaultStream, StandardCharsets.UTF_8));
+        String defaultVersion = defaultConfig.getString("config-version", "1.1.1");
+
+        if (currentVersion.equals(defaultVersion)) {
+            getLogger().info(getMessage("warning.config-file-up-to-date", "Config file config.yml is up-to-date (version %version%).")
+                    .replace("%version%", defaultVersion));
+            return;
+        }
+
+        for (String key : defaultConfig.getKeys(true)) {
+            if (!currentConfig.contains(key)) {
+                currentConfig.set(key, defaultConfig.get(key));
+            }
+        }
+
+        currentConfig.set("config-version", defaultVersion);
+
+        try {
+            currentConfig.save(configFile);
+            getLogger().info(getMessage("warning.config-file-updated", "Updated config.yml to version %version%.")
+                    .replace("%version%", defaultVersion));
+        } catch (IOException e) {
+            getLogger().severe("Failed to update config.yml: " + e.getMessage());
         }
     }
 
@@ -582,7 +596,7 @@ public class PlayerManager extends JavaPlugin implements Listener, CommandExecut
             this.savePlayerDataConfig();
         }
         if (latestVersion != null && (player.hasPermission("playermanager.admin") || player.hasPermission("playermanager.updates")) && !notifiedAdmins.contains(player.getUniqueId())) {
-            String playerMessage = ChatColor.YELLOW + "" + ChatColor.BOLD + getMessage("update.available", "A new version of PlayerManager (%version%) is available at https://modrinth.com/plugin/playermanagers/versions")
+            String playerMessage = ChatColor.YELLOW + "" + ChatColor.BOLD + getMessage("update.available", "A new version of PlayerManager (%version%) is available at https://modrinth.com/plugin/player_manager/versions")
                     .replace("%version%", latestVersion);
             notifiedAdmins.add(player.getUniqueId());
             Bukkit.getScheduler().runTaskLater(this, () -> player.sendMessage(playerMessage), 20L);

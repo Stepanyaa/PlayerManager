@@ -1,5 +1,5 @@
 name: PlayerManager
-version: 1.1.0
+version: 1.1.1
 main: ru.stepanyaa.playerManager.PlayerManager
 license: MIT
 folia-supported: false

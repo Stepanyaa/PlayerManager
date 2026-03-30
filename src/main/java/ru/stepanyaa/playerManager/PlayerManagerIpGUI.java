@@ -60,8 +60,7 @@ public class PlayerManagerIpGUI implements InventoryHolder, Listener {
     public PlayerManagerIpGUI(PlayerManager plugin, PlayerSearchGUI searchGUI) {
         this.plugin = plugin;
         this.searchGUI = searchGUI;
-        this.inventory = Bukkit.createInventory(this, 54, ChatColor.DARK_GRAY + plugin.getMessage("gui.ip-search-title", "IP Search"));
-        Bukkit.getPluginManager().registerEvents(this, plugin);
+        inventory = Bukkit.createInventory(this, 54, ChatColor.DARK_GRAY + plugin.getMessage("gui.ip-search-title", "IP Search"));
     }
     public static class IPResult {
         public String ip;
@@ -309,6 +308,7 @@ public class PlayerManagerIpGUI implements InventoryHolder, Listener {
         inventory.clear();
         inventory.setItem(4, loadingItem);
         player.openInventory(inventory);
+        this.playersInGUI.add(player.getUniqueId());
         setLastOpenedMenu(player.getUniqueId(), "ip_search");
 
         List<PlayerSearchGUI.PlayerResult> cachedResults = cachedSearchByIPResults.get(ip);
@@ -426,6 +426,8 @@ public class PlayerManagerIpGUI implements InventoryHolder, Listener {
         Player player = (Player) event.getWhoClicked();
         if (!(event.getInventory().getHolder() instanceof PlayerManagerIpGUI)) return;
         event.setCancelled(true);
+        if (!(event.getInventory().getHolder() instanceof PlayerManagerIpGUI)) return;
+        event.setCancelled(true);
         ItemStack clickedItem = event.getCurrentItem();
         if (clickedItem == null || clickedItem.getType() == Material.AIR) return;
 
@@ -440,31 +442,38 @@ public class PlayerManagerIpGUI implements InventoryHolder, Listener {
                 }
 
                 player.closeInventory();
-                String cancelText = plugin.getMessage("gui.cancel", "[Cancel]");
-                TextComponent messageComponent = new TextComponent(ChatColor.YELLOW + plugin.getMessage("action.enter-ip", "Enter IP address in chat") + " ");
-                TextComponent cancel = new TextComponent(ChatColor.RED + cancelText);
+
+                String msgText = plugin.getMessage("action.enter-ip", "Enter IP or click to type command:");
+                TextComponent message = new TextComponent(ChatColor.YELLOW + msgText + " ");
+
+                TextComponent suggest = new TextComponent(ChatColor.AQUA + "[/pm search-ip]");
+                suggest.setClickEvent(new ClickEvent(ClickEvent.Action.SUGGEST_COMMAND, "/pm search-ip "));
+
+                TextComponent cancel = new TextComponent(" " + ChatColor.RED + plugin.getMessage("gui.cancel", "[Cancel]"));
                 cancel.setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/playermanager reset"));
-                messageComponent.addExtra(cancel);
-                player.spigot().sendMessage(messageComponent);
+
+                message.addExtra(suggest);
+                message.addExtra(cancel);
+                player.spigot().sendMessage(message);
 
                 plugin.getPlayerDataConfig().set("admin." + player.getUniqueId() + ".pending_action", "ip_search");
                 plugin.savePlayerDataConfig();
 
-                searchGUI.addPendingAction(player.getUniqueId(), (inputMessage, p) -> {
+                plugin.getPlayerSearchGUI().addPendingAction(player.getUniqueId(), (inputMessage, p) -> {
                     Bukkit.getScheduler().runTask(plugin, () -> {
                         String input = ChatColor.stripColor(inputMessage.trim());
-                        String cancelTextRu = ChatColor.stripColor(plugin.getMessage("gui.cancel", "[Cancel]").replaceAll("[\\[\\]]", ""));
-                        String cancelTextEn = "Cancel";
 
-                        if (input.equalsIgnoreCase(cancelTextRu) || input.equalsIgnoreCase(cancelTextEn)) {
+                        if (input.equalsIgnoreCase("cancel") || input.contains("отмена")) {
                             plugin.getPlayerDataConfig().set("admin." + p.getUniqueId() + ".pending_action", null);
-                            plugin.savePlayerDataConfig();
                             p.sendMessage(ChatColor.YELLOW + plugin.getMessage("gui.search-cancelled", "Search cancelled"));
                             return;
                         }
+                        if (input.startsWith("/pm search-ip ")) {
+                            input = input.replace("/pm search-ip ", "");
+                        }
 
-                        String ip = input;
-                        openSearchGUIByIP(p, ip);
+                        openSearchGUIByIP(p, input);
+                        return;
                     });
                 });
             }

@@ -1,5 +1,5 @@
 name: PlayerManager
-version: 1.1.1
+version: 1.1.2
 main: ru.stepanyaa.playerManager.PlayerManager
 license: MIT
 folia-supported: false
@@ -7,7 +7,7 @@ api-version: 1.16
 commands:
  playermanager:
   description: A powerful and intuitive Minecraft plugin for efficient player management.
-  usage: /<command> <gui | reload | reset | ban | kick | warn | mute | unban | teleport | inventory> [player]
+  usage: /<command> <gui | reload | ip-search | reset | ban | kick | warn | mute | unban | teleport | inventory> [player]
   aliases: [pm]
 permissions:
  playermanager.admin:

@@ -2,17 +2,39 @@
 # If you want to help translate PlayerManager into your language Join our Discord https://discord.gg/72mzBTckKC and check the #translations channel
 
 # Plugin info
-config-version: "1.1.1"
+config-version: "1.1.2"
+# Available languages "en", "ru", "de", "fr", "tr", "pl", "pt"
 language: "en"
 
 # Feature toggles
 features:
+  # Allows staff to teleport to players or bring players to them
   player-teleportation: true
+
+  # Enables viewing and managing player inventories
   inventory-inspection: true
+
+  # Enables viewing and managing player ender chests
   ender-chest-inspection: true
+
+  # Enables the built-in system for bans, kicks, mutes, and warns
   punishment-system: true
+
+  # Enables the detailed player info menu and quick actions (heal, kill, etc.)
   player-info-actions: true
+
+  # Allows you to display a menu for searching for IP addresses
   ip-search: true
+
+  # === Privacy Settings ===
+  # IMPORTANT: If you record videos or stream (screen sharing),
+  # it is highly recommended to keep these options set to 'false'.
+
+  # Show IP addresses in the command tab-completion
+  ip-tab-complete: false
+
+  # Display the player's IP address directly in the GUI menus
+  show-ip-in-gui: false
 
 # === Player Data Cleanup ===
 # Deleting data of inactive players / Удаление данных неактивных игроков

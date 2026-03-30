@@ -26,11 +26,6 @@ package ru.stepanyaa.playerManager;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.function.BiConsumer;
 import java.util.stream.Collectors;
@@ -48,38 +43,26 @@ import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerCommandPreprocessEvent;
 import org.bukkit.plugin.java.JavaPlugin;
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonParser;
 import org.bstats.bukkit.Metrics;
 
 public class PlayerManager extends JavaPlugin implements Listener, CommandExecutor, TabCompleter {
     private File playerDataFile;
     private FileConfiguration playerDataConfig;
-    private File messagesFile;
-    private FileConfiguration messagesConfig;
     private PlayerSearchGUI playerSearchGUI;
-    private String language;
-    private static final String MODRINTH_API_URL = "https://api.modrinth.com/v2/project/player_manager/version";
-    private static final String CURRENT_VERSION = "1.1.1";
-    private String latestVersion = null;
-    private final Set<UUID> notifiedAdmins = new HashSet<>();
-    private static final String[] SUPPORTED_LANGUAGES = {"en", "ru"};
+    private PlayerManagerIpGUI playerManagerIpGUI;
+    private MessageManager messageManager;
     private final List<String> cachedPlayerNames = new ArrayList<>();
     private final Set<String> adminUUIDs = new HashSet<>();
     public final Map<UUID, BiConsumer<String, Player>> pendingActions = new HashMap<>();
-    private boolean isFirstEnable = true;
 
     @Override
     public void onEnable() {
         this.saveDefaultConfig();
         this.reloadConfig();
 
-        this.language = getConfig().getString("language", "en");
-        if (!Arrays.asList(SUPPORTED_LANGUAGES).contains(this.language)) {
-            getLogger().warning("Unsupported language '" + this.language + "' in config.yml, defaulting to 'en'");
-            this.language = "en";
-        }
+        this.messageManager = new MessageManager(this);
+        this.messageManager.init();
+
         this.playerDataFile = new File(this.getDataFolder(), "player_data.yml");
         if (!this.playerDataFile.exists()) {
             this.playerDataFile.getParentFile().mkdirs();
@@ -93,12 +76,12 @@ public class PlayerManager extends JavaPlugin implements Listener, CommandExecut
             this.playerDataConfig.createSection("players");
             this.savePlayerDataConfig();
         }
-        this.loadMessages();
-        this.updateMessagesFiles();
-        this.updateConfigFile();
+
         this.playerSearchGUI = new PlayerSearchGUI(this);
+        this.playerManagerIpGUI = new PlayerManagerIpGUI(this, this.playerSearchGUI);
         this.getServer().getPluginManager().registerEvents(this, this);
         this.getServer().getPluginManager().registerEvents(this.playerSearchGUI, this);
+        this.getServer().getPluginManager().registerEvents(this.playerManagerIpGUI, this);
         PluginCommand command = this.getCommand("playermanager");
         if (command != null) {
             command.setExecutor(this);
@@ -127,13 +110,12 @@ public class PlayerManager extends JavaPlugin implements Listener, CommandExecut
             this.loadPlayerMenuState(player);
             this.updatePlayerDataOnJoin(player);
         }
-        checkForUpdates();
+        this.messageManager.checkForUpdates();
         checkConfigInactivityPeriod();
         schedulePlayerDataCleanup();
         getLogger().info(getMessage("warning.plugin-enabled", "PlayerManager enabled with language: %lang%")
-                .replace("%lang%", language));
+                .replace("%lang%", messageManager.getLanguage()));
 
-        this.isFirstEnable = false;
         int pluginId = 27779;
         Metrics metrics = new Metrics(this, pluginId);
     }
@@ -207,158 +189,6 @@ public class PlayerManager extends JavaPlugin implements Listener, CommandExecut
         }
     }
 
-    private void checkForUpdates() {
-        Bukkit.getScheduler().runTaskAsynchronously(this, () -> {
-            try {
-                URL url = new URL(MODRINTH_API_URL);
-                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                conn.setRequestMethod("GET");
-                conn.setRequestProperty("User-Agent", "PlayerManager/" + CURRENT_VERSION);
-                conn.connect();
-                if (conn.getResponseCode() == 200) {
-                    JsonArray versions = JsonParser.parseReader(new InputStreamReader(conn.getInputStream())).getAsJsonArray();
-                    String highestVersion = null;
-                    for (JsonElement element : versions) {
-                        String versionNumber = element.getAsJsonObject().get("version_number").getAsString();
-                        String versionType = element.getAsJsonObject().get("version_type").getAsString();
-                        if (versionNumber.contains("-SNAPSHOT") && !versionType.equals("release")) {
-                            continue;
-                        }
-                        if (highestVersion == null || isNewerVersion(versionNumber, highestVersion)) {
-                            highestVersion = versionNumber;
-                        }
-                    }
-                    if (highestVersion != null && isNewerVersion(highestVersion, CURRENT_VERSION)) {
-                        String[] currentParts = CURRENT_VERSION.split("\\.");
-                        String[] highestParts = highestVersion.split("\\.");
-                        if (currentParts.length == 3 && highestParts.length == 3) {
-                            int currentMajor = Integer.parseInt(currentParts[0]);
-                            int currentMinor = Integer.parseInt(currentParts[1]);
-                            int currentPatch = Integer.parseInt(currentParts[2]);
-                            int highestMajor = Integer.parseInt(highestParts[0]);
-                            int highestMinor = Integer.parseInt(highestParts[1]);
-                            int highestPatch = Integer.parseInt(highestParts[2]);
-                            if (currentMajor == highestMajor && currentMinor == highestMinor && highestPatch == currentPatch + 1) {
-                                latestVersion = highestVersion;
-                                getLogger().warning("*** UPDATE AVAILABLE *** A new version of PlayerManagers (" + latestVersion + ") is available at:\nhttps://modrinth.com/plugin/player_manager/versions");
-                            }
-                        }
-                    }
-                }
-                conn.disconnect();
-            } catch (Exception e) {
-                getLogger().warning("Failed to check for updates: " + e.getMessage());
-            }
-        });
-    }
-
-    private void updateMessagesFiles() {
-        for (String lang : SUPPORTED_LANGUAGES) {
-            String fileName = "messages_" + lang + ".yml";
-            File messageFile = new File(getDataFolder(), fileName);
-            if (!messageFile.exists()) {
-                if (getResource(fileName) != null) {
-                    saveResource(fileName, false);
-                    getLogger().info(getMessage("warning.messages-file-create", "Created messages file: %file%")
-                            .replace("%file%", fileName));
-                } else {
-                    getLogger().warning(getMessage("warning.messages-file-not-found", "Messages file %file% not found in plugin!")
-                            .replace("%file%", fileName));
-                    continue;
-                }
-            }
-            YamlConfiguration existingConfig = YamlConfiguration.loadConfiguration(messageFile);
-            String currentFileVersion = existingConfig.getString("version", "0.0.0");
-            if (currentFileVersion.equals(CURRENT_VERSION)) {
-                if (isFirstEnable) {
-                    getLogger().info(getMessage("warning.messages-file-up-to-date", "Messages file %file% is up-to-date (version %version%).")
-                            .replace("%file%", fileName)
-                            .replace("%version%", CURRENT_VERSION));
-                }
-                continue;
-            }
-            if (getResource(fileName) != null) {
-                try {
-                    saveResource(fileName, true);
-                    getLogger().info(getMessage("warning.messages-file-updated", "Updated messages file %file% to version %version%.")
-                            .replace("%file%", fileName)
-                            .replace("%version%", CURRENT_VERSION));
-                    YamlConfiguration newConfig = YamlConfiguration.loadConfiguration(messageFile);
-                    newConfig.set("version", CURRENT_VERSION);
-                    newConfig.save(messageFile);
-                } catch (Exception e) {
-                    getLogger().warning("Failed to update messages file " + fileName + ": " + e.getMessage());
-                }
-            } else {
-                getLogger().warning(getMessage("warning.messages-file-not-found", "Messages file %file% not found in plugin!")
-                        .replace("%file%", fileName));
-            }
-        }
-    }
-
-    private void updateConfigFile() {
-        File configFile = new File(getDataFolder(), "config.yml");
-        if (!configFile.exists()) {
-            saveResource("config.yml", false);
-            getLogger().info(getMessage("warning.config-file-create", "Created config file: config.yml"));
-            return;
-        }
-
-        FileConfiguration currentConfig = YamlConfiguration.loadConfiguration(configFile);
-        String currentVersion = currentConfig.getString("config-version", "0");
-
-        InputStream defaultStream = getResource("config.yml");
-        if (defaultStream == null) {
-            getLogger().warning(getMessage("warning.config-file-not-found", "Resource config.yml not found in plugin!"));
-            return;
-        }
-
-        FileConfiguration defaultConfig = YamlConfiguration.loadConfiguration(new InputStreamReader(defaultStream, StandardCharsets.UTF_8));
-        String defaultVersion = defaultConfig.getString("config-version", "1.1.1");
-
-        if (currentVersion.equals(defaultVersion)) {
-            getLogger().info(getMessage("warning.config-file-up-to-date", "Config file config.yml is up-to-date (version %version%).")
-                    .replace("%version%", defaultVersion));
-            return;
-        }
-
-        for (String key : defaultConfig.getKeys(true)) {
-            if (!currentConfig.contains(key)) {
-                currentConfig.set(key, defaultConfig.get(key));
-            }
-        }
-
-        currentConfig.set("config-version", defaultVersion);
-
-        try {
-            currentConfig.save(configFile);
-            getLogger().info(getMessage("warning.config-file-updated", "Updated config.yml to version %version%.")
-                    .replace("%version%", defaultVersion));
-        } catch (IOException e) {
-            getLogger().severe("Failed to update config.yml: " + e.getMessage());
-        }
-    }
-
-    private boolean isNewerVersion(String newVersion, String currentVersion) {
-        try {
-            String cleanNewVersion = newVersion.replace("-SNAPSHOT", "");
-            String cleanCurrentVersion = currentVersion.replace("-SNAPSHOT", "");
-            String[] newParts = cleanNewVersion.split("\\.");
-            String[] currentParts = cleanCurrentVersion.split("\\.");
-            int length = Math.max(newParts.length, currentParts.length);
-            for (int i = 0; i < length; i++) {
-                int newPart = i < newParts.length ? Integer.parseInt(newParts[i]) : 0;
-                int currentPart = i < currentParts.length ? Integer.parseInt(currentParts[i]) : 0;
-                if (newPart > currentPart) return true;
-                if (newPart < currentPart) return false;
-            }
-            return false;
-        } catch (NumberFormatException e) {
-            getLogger().warning("Invalid version format: newVersion=" + newVersion + ", currentVersion=" + currentVersion);
-            return false;
-        }
-    }
-
     public boolean isAdminPlayer(Player player) {
         return player.hasPermission("playermanager.admin") ||
                 player.hasPermission("playermanager.gui");
@@ -409,6 +239,9 @@ public class PlayerManager extends JavaPlugin implements Listener, CommandExecut
             if (sender.hasPermission("playermanager.admin") || sender.hasPermission("playermanager.inventory")) {
                 commands.add("inventory");
             }
+            if (sender.hasPermission("playermanager.ip-search")) {
+                commands.add("search-ip");
+            }
             return commands.stream()
                     .filter(cmd -> cmd.toLowerCase().startsWith(args[0].toLowerCase()))
                     .sorted()
@@ -451,6 +284,25 @@ public class PlayerManager extends JavaPlugin implements Listener, CommandExecut
             }
         } else if (args.length == 3 && Arrays.asList("ban", "warn", "mute").contains(args[0].toLowerCase())) {
             return Collections.singletonList("<reason>");
+        } else if (args.length == 2 && args[0].equalsIgnoreCase("search-ip")) {
+            if (!this.getConfig().getBoolean("features.ip-tab-complete", true)) {
+                return Collections.emptyList();
+            }
+
+            if (sender.hasPermission("playermanager.admin") || sender.hasPermission("playermanager.ip-search")) {
+                String partialIp = args[1];
+                ConfigurationSection players = this.getPlayerDataConfig().getConfigurationSection("players");
+                Set<String> matches = new HashSet<>();
+                if (players != null) {
+                    for (String uuid : players.getKeys(false)) {
+                        String ip = this.getPlayerDataConfig().getString("players." + uuid + ".ip");
+                        if (ip != null && ip.startsWith(partialIp)) {
+                            matches.add(ip);
+                        }
+                    }
+                }
+                return new ArrayList<>(matches);
+            }
         }
         return Collections.emptyList();
     }
@@ -481,47 +333,9 @@ public class PlayerManager extends JavaPlugin implements Listener, CommandExecut
                 sender.hasPermission("playermanager.inventory");
     }
 
-    private void loadMessages() {
-        String messagesFileName = "messages_" + language + ".yml";
-        messagesFile = new File(getDataFolder(), messagesFileName);
-        try {
-            if (!messagesFile.exists()) {
-                if (getResource(messagesFileName) != null) {
-                    saveResource(messagesFileName, false);
-                    getLogger().info("Created messages file: " + messagesFileName);
-                } else {
-                    getLogger().warning("Messages file " + messagesFileName + " not found in plugin!");
-                    messagesConfig = new YamlConfiguration();
-                    return;
-                }
-            }
-            messagesConfig = YamlConfiguration.loadConfiguration(messagesFile);
-            String currentFileVersion = messagesConfig.getString("version", "0.0.0");
-            if (!currentFileVersion.equals(CURRENT_VERSION)) {
-                if (getResource(messagesFileName) != null) {
-                    saveResource(messagesFileName, true);
-                    messagesConfig = YamlConfiguration.loadConfiguration(messagesFile);
-                    messagesConfig.set("version", CURRENT_VERSION);
-                    messagesConfig.save(messagesFile);
-                    getLogger().info("Updated messages file " + messagesFileName + " to version " + CURRENT_VERSION);
-                } else {
-                    getLogger().warning("Resource " + messagesFileName + " not found in plugin!");
-                }
-            } else if (isFirstEnable) {
-                getLogger().info("Messages file " + messagesFileName + " is up-to-date (version " + CURRENT_VERSION + ").");
-            }
-        } catch (Exception e) {
-            getLogger().severe("Failed to load messages file: " + e.getMessage());
-            messagesConfig = new YamlConfiguration();
-        }
-    }
 
     public String getMessage(String key, String defaultValue) {
-        String message = messagesConfig.getString(key, defaultValue);
-        if (message == null || message.isEmpty()) {
-            return defaultValue;
-        }
-        return ChatColor.translateAlternateColorCodes('&', message);
+        return messageManager.getMessage(key, defaultValue);
     }
 
     public void loadPlayerMenuState(Player player) {
@@ -595,19 +409,20 @@ public class PlayerManager extends JavaPlugin implements Listener, CommandExecut
         if (needsSave) {
             this.savePlayerDataConfig();
         }
-        if (latestVersion != null && (player.hasPermission("playermanager.admin") || player.hasPermission("playermanager.updates")) && !notifiedAdmins.contains(player.getUniqueId())) {
-            String playerMessage = ChatColor.YELLOW + "" + ChatColor.BOLD + getMessage("update.available", "A new version of PlayerManager (%version%) is available at https://modrinth.com/plugin/player_manager/versions")
-                    .replace("%version%", latestVersion);
-            notifiedAdmins.add(player.getUniqueId());
-            Bukkit.getScheduler().runTaskLater(this, () -> player.sendMessage(playerMessage), 20L);
-        }
+        messageManager.notifyUpdateIfAvailable(player);
     }
 
     @EventHandler
     public void onPlayerJoin(PlayerJoinEvent event) {
+        Player player = event.getPlayer();
+        String uuid = player.getUniqueId().toString();
+        String path = "players." + uuid + ".";
         this.updatePlayerDataOnJoin(event.getPlayer());
         this.loadPlayerMenuState(event.getPlayer());
         String name = event.getPlayer().getName().toLowerCase();
+        if (player.getAddress() != null) {
+            this.playerDataConfig.set(path + "ip", player.getAddress().getAddress().getHostAddress());
+        }
         if (!cachedPlayerNames.contains(name)) {
             cachedPlayerNames.add(name);
             cachedPlayerNames.sort(String.CASE_INSENSITIVE_ORDER);
@@ -617,7 +432,9 @@ public class PlayerManager extends JavaPlugin implements Listener, CommandExecut
             adminUUIDs.add(event.getPlayer().getUniqueId().toString());
         }
     }
-
+    public PlayerManagerIpGUI getPlayerManagerIpGUI() {
+        return this.playerManagerIpGUI;
+    }
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
         Player player = event.getPlayer();
@@ -663,7 +480,11 @@ public class PlayerManager extends JavaPlugin implements Listener, CommandExecut
         }
         Player admin = (Player) sender;
         if (args.length == 0) {
-            sender.sendMessage(ChatColor.RED + getMessage("command.usage", "Usage: /playermanager <gui | reload | reset | ban | kick | warn | mute | unban | teleport | inventory>"));
+            if (admin.hasPermission("playermanager.gui")) {
+                this.playerSearchGUI.openSearchGUI(admin);
+            } else {
+                admin.sendMessage(messageManager.getMessage("error.no-permission", "&cYou don't have permission!"));
+            }
             return true;
         }
         String action = args[0].toLowerCase();
@@ -701,6 +522,29 @@ public class PlayerManager extends JavaPlugin implements Listener, CommandExecut
                 return true;
             }
             this.playerSearchGUI.resetSearch(admin);
+            return true;
+        }
+        if (action.equals("search-ip")) {
+
+            if (!sender.hasPermission("playermanager.ip-search")) {
+                sender.sendMessage(ChatColor.RED + getMessage("error.no-permission", "You don't have permission!"));
+                return true;
+            }
+
+            if (!(sender instanceof Player)) {
+                sender.sendMessage(ChatColor.RED + "This command can only be used by players.");
+                return true;
+            }
+
+            if (args.length < 2) {
+                sender.sendMessage(ChatColor.RED + getMessage("command.usage-search-ip", "Usage: /pm search-ip <ip>"));
+                return true;
+            }
+
+            Player player = (Player) sender;
+            String targetIp = args[1];
+
+            this.playerManagerIpGUI.openSearchGUIByIP(player, targetIp);
             return true;
         }
         if (args.length < 2) {
@@ -852,17 +696,12 @@ public class PlayerManager extends JavaPlugin implements Listener, CommandExecut
         this.playerSearchGUI.refreshOpenGUIs();
         return true;
     }
-
+    public PlayerSearchGUI getPlayerSearchGUI() {
+        return this.playerSearchGUI;
+    }
     private void reloadPlugin(Player player) {
         this.reloadConfig();
-        this.language = getConfig().getString("language", "en");
-        if (!Arrays.asList(SUPPORTED_LANGUAGES).contains(this.language)) {
-            getLogger().warning("Unsupported language '" + this.language + "' in config.yml, defaulting to 'en'");
-            this.language = "en";
-        }
-        this.updateConfigFile();
-        this.updateMessagesFiles();
-        this.loadMessages();
+        this.messageManager.reload();
         for (Player p : Bukkit.getOnlinePlayers()) {
             this.loadPlayerMenuState(p);
         }
@@ -883,8 +722,8 @@ public class PlayerManager extends JavaPlugin implements Listener, CommandExecut
         }
     }
 
-    public String getLanguage() {
-        return language;
+    public MessageManager getMessageManager() {
+        return messageManager;
     }
 
     public void updatePlayerBanStatus(String uuid, boolean banned) {

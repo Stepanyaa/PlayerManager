@@ -1,0 +1,320 @@
+# Language for messages (e.g., 'en' for English, 'ru' for Russian)
+# If you want to help translate PlayerManager into your language Join our Discord https://discord.gg/72mzBTckKC and check the #translations channel
+
+# Plugin info
+config-version: "2.0.0"
+# Language files live in plugins/PlayerManager/lang and are named after
+# Minecraft locale codes: en_us.yml, ru_ru.yml, de_de.yml, fr_fr.yml,
+# tr_tr.yml, pl_pl.yml, pt_br.yml. You can add your own file, for example
+# es_es.yml, and it will be picked up automatically.
+#
+# "auto" = every player sees the plugin in the language of their own client
+# (taken from Player#getLocale on join and updated when they change it).
+# Set a concrete code such as "ru_ru" to force one language for everyone.
+language: "auto"
+# Used for the console and for clients whose locale has no translation.
+fallback-language: "en_us"
+# Master switch for the per player detection; ignored when "language" is a
+# concrete locale code.
+auto-language: true
+
+# Storage for head skins and offline inventory snapshots.
+# These two data sets used to sit inside player_data.yml and made every save
+# slow, which could freeze the server when a player quit. They now live in
+# their own storage, written asynchronously in batches.
+storage:
+  # "sqlite" = plugins/PlayerManager/playermanager.db (recommended, fastest).
+  # "yaml"   = plugins/PlayerManager/skins.yml + inventories.yml.
+  # SQLite falls back to YAML automatically when the server has no JDBC driver.
+  type: "sqlite"
+  # How often pending changes are written to disk, in seconds.
+  flush-interval-seconds: 5
+
+# Player head skins
+skins:
+  enabled: true
+  # Use SkinsRestorer when it is installed (custom skins).
+  use-skinsrestorer: true
+  # How long a already known skin is kept before it is looked up again.
+  refresh-cooldown-minutes: 30
+  # Gradual loading: how many skins are downloaded per interval. Heads that are
+  # not cached yet appear a moment later, the server never waits for them.
+  batch-size: 3
+  batch-interval-seconds: 1
+
+# Date pattern used everywhere in the GUI (Java SimpleDateFormat)
+date-format: "dd.MM.yyyy HH:mm"
+
+# Feature toggles
+features:
+  # Allows staff to teleport to players or bring players to them
+  player-teleportation: true
+
+  # Enables viewing and managing player inventories
+  inventory-inspection: true
+
+  # Enables viewing and managing player ender chests
+  ender-chest-inspection: true
+
+  # Enables the built-in system for bans, kicks, mutes, and warns
+  punishment-system: true
+
+  # Enables the jail punishment (provider based, see the "jail" section)
+  jail-system: true
+
+  # Enables the detailed player info menu and quick actions (heal, kill, etc.)
+  player-info-actions: true
+
+  # Allows you to display a menu for searching for IP addresses
+  ip-search: true
+
+  # === Privacy Settings ===
+  # IMPORTANT: If you record videos or stream (screen sharing),
+  # it is highly recommended to keep these options set to 'false'.
+
+  # Show IP addresses in the command tab-completion
+  ip-tab-complete: false
+
+  # Display the player's IP address directly in the GUI menus
+  show-ip-in-gui: false
+
+# === Player Data Cleanup ===
+# Deleting data of inactive players / Удаление данных неактивных игроков
+max-inactivity-days: 30
+# Check interval (in hours) / Интервал проверки (в часах)
+cleanup-interval-hours: 24
+
+# =====================================================================
+# 2. Activity badges (v2.0.0)
+# Replaces the plain "was long ago" text with configurable colored badges.
+# Colors accept &-codes or names (GREEN, YELLOW, GOLD, AQUA, LIGHT_PURPLE,
+# RED, DARK_GRAY, ...). Each entry needs exactly one threshold:
+#   max-seconds / max-minutes / max-hours / max-days.
+# Use -1 for the catch-all entry (it must be the last one).
+# The first matching entry from top to bottom wins.
+# =====================================================================
+activity-status:
+  enabled: true
+  # The text of every status is taken from the language files (activity.<id>),
+  # the values below are only used when a key is missing.
+  # When the head already shows a quit category ("Left yesterday"), the
+  # activity line would repeat it - with true it is hidden in that case.
+  hide-when-quit-known: true
+  online:
+    icon: "🟢"
+    color: "GREEN"
+    text: "Currently online"
+  statuses:
+    - id: just_now
+      icon: "🟢"
+      color: "GREEN"
+      text: "Was here just now"
+      max-minutes: 5
+    - id: within_hour
+      icon: "🟡"
+      color: "YELLOW"
+      text: "Was here less than an hour ago"
+      max-hours: 1
+    - id: today
+      icon: "🟠"
+      color: "GOLD"
+      text: "Was here today"
+      max-hours: 24
+    - id: yesterday
+      icon: "🔵"
+      color: "AQUA"
+      text: "Was here yesterday"
+      max-days: 2
+    - id: week
+      icon: "🟣"
+      color: "LIGHT_PURPLE"
+      text: "Away for a week"
+      max-days: 7
+    - id: month
+      icon: "🔴"
+      color: "RED"
+      text: "Away for a month"
+      max-days: 30
+    - id: over_month
+      icon: "⚫"
+      color: "DARK_GRAY"
+      text: "Away for over a month"
+      max-days: 90
+    - id: over_3_months
+      icon: "⚫"
+      color: "DARK_GRAY"
+      text: "Away for over 3 months"
+      max-days: 180
+    - id: over_6_months
+      icon: "⚫"
+      color: "DARK_GRAY"
+      text: "Away for over half a year"
+      max-days: 365
+    - id: over_year
+      icon: "⚫"
+      color: "DARK_GRAY"
+      text: "Away for over a year"
+      max-days: -1
+
+# =====================================================================
+# 3. Inventory viewer (v2.0.0)
+# Top panel  = the player's inventory.
+# Bottom panel = the control panel (back, player menu, ender chest,
+# teleport, freeze, punish, punishment history, copy UUID, statistics,
+# active effects, refresh).
+# =====================================================================
+inventory-viewer:
+  # Allow editing items of the viewed player.
+  # Requires the playermanager.inventory.edit permission as well.
+  allow-editing: true
+  # How often (in ticks) an open inventory/ender chest view is synchronised
+  # with the real one. 10 ticks = twice per second. The task only runs while
+  # at least one view is open and it only compares the slots of those views,
+  # so it costs practically nothing.
+  live-sync-ticks: 10
+  # Minimum time (in milliseconds) between two saves of an offline player
+  # while an administrator is editing. Serialising and saving is done off the
+  # main thread.
+  save-interval-ms: 1500
+
+# Offline inventories: contents are snapshotted on quit, edits made while the
+# player is offline are stored and applied automatically on their next join.
+offline-inventory:
+  # Delay (in ticks) before pending offline edits are applied on join.
+  # 0 applies them inside the join event, before the player can open anything.
+  # Any higher value re-opens the duplication window, so keep it at 0.
+  apply-delay-ticks: 0
+  # Serialise and store inventories off the main thread.
+  async-save: true
+  notify-message: "&eYour inventory was modified by an administrator."
+
+# Freeze button of the control panel
+freeze:
+  blindness: false
+  message-frozen: "&cYou have been frozen by an administrator. Do not log out!"
+  message-unfrozen: "&aYou have been unfrozen."
+  notify-on-quit: true
+
+# =====================================================================
+# 4. "Recently left" filter (v2.0.0)
+# =====================================================================
+quit-tracking:
+  enabled: true
+  # A player is treated as "logged out in combat" if they took or dealt
+  # damage within this many seconds before quitting.
+  combat-seconds: 15
+  # Name shown as "Last server" (useful on BungeeCord/Velocity networks)
+  server-name: "Survival"
+  default-reason: "Left the game"
+  banned-reason: "Kicked/banned"
+
+# =====================================================================
+# 5-6. Jail system (v2.0.0)
+# The plugin auto-detects the installed jail plugin and loads the matching
+# JailProvider. Supported out of the box: EssentialsX, CMI, DeluxeJails,
+# Jails, JailSystem, AdvancedBan, LiteBans, Prison.
+# =====================================================================
+jail:
+  # How many jail history entries are stored per player
+  history-size: 25
+
+  # Force one specific provider instead of auto-detection ("" = auto)
+  force-provider: ""
+
+  # Detection order
+  provider-priority:
+    - EssentialsX
+    - CMI
+    - DeluxeJails
+    - Jails
+    - JailSystem
+    - AdvancedBan
+    - LiteBans
+    - Prison
+
+  # Override the commands of a built-in provider without writing code.
+  # Placeholders: %player% %uuid% %jail% %time% %seconds% %minutes% %reason% %admin%
+  overrides: {}
+  #  CMI:
+  #    jail-command: "cmi jail %player% %jail% %time% -s"
+  #    unjail-command: "cmi unjail %player%"
+  #    list-command: "cmi jaillist"
+
+  # 6. Custom providers - full form
+  custom-jails: {}
+  #  myplugin:
+  #    list-command: "jails"
+  #    jail-command: "jail %player% %jail% %time%"
+  #    unjail-command: "unjail %player%"
+  #    permanent-command: "jail %player% %jail%"
+  #    jails: [alpha, beta]
+  #    supports-permanent: true
+  #    supports-timed: true
+  #    supports-offline: false
+
+  # 6. Custom providers - short form
+  providers: []
+  #  - name: Essentials
+  #    command: "jail %player% %jail% %time%"
+  #  - name: CMI
+  #    command: "cmi jail %player% %jail% %time%"
+
+# =====================================================================
+# 1 & 7. Punishments
+# =====================================================================
+punishments:
+  # Force a punishment backend instead of auto-detection.
+  # LITEBANS, ADVANCEDBAN, LIBERTYBANS, BANMANAGER, CMI, ESSENTIALS, VANILLA
+  force-backend: ""
+
+  default-reason: "Violation of the server rules"
+  max-reason-length: 128
+
+  # 7. Quick punishment reasons, shown right after choosing the duration.
+  quick-reasons-enabled: true
+  quick-reasons:
+    - id: cheating
+      text: "Cheating"
+      icon: "DIAMOND_SWORD"
+    - id: xray
+      text: "X-Ray"
+      icon: "DIAMOND_ORE"
+    - id: bug_abuse
+      text: "Bug abuse"
+      icon: "REDSTONE_TORCH"
+    - id: griefing
+      text: "Griefing"
+      icon: "TNT"
+    - id: ban_evasion
+      text: "Ban evasion"
+      icon: "ENDER_PEARL"
+    - id: swearing
+      text: "Swearing"
+      icon: "PAPER"
+    - id: spam
+      text: "Spam"
+      icon: "BOOK"
+    - id: advertising
+      text: "Advertising"
+      icon: "WRITABLE_BOOK"
+    - id: other
+      text: "Other..."
+      icon: "NAME_TAG"
+      custom: true
+
+  # Screens shown to the punished player.
+  # Placeholders: %reason% %admin% %time% %expiry%
+  ban-screen: "&cYou are banned from this server.\n&7Reason: &f%reason%\n&7Staff: &f%admin%"
+  tempban-screen: "&cYou are temporarily banned.\n&7Reason: &f%reason%\n&7Duration: &f%time%\n&7Staff: &f%admin%"
+  kick-screen: "&cYou have been kicked.\n&7Reason: &f%reason%\n&7Staff: &f%admin%"
+
+# Words used when a duration is rendered as text
+time-labels:
+  day: "d"
+  hour: "h"
+  minute: "m"
+  second: "s"
+  permanent: "permanently"
+
+# List of admin UUIDs highlighted in the GUI
+admin-uuids: []

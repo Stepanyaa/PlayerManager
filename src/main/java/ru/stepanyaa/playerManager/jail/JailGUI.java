@@ -209,14 +209,16 @@ public class JailGUI implements Listener, InventoryHolder {
         if (!(event.getWhoClicked() instanceof Player)) {
             return;
         }
-        Inventory clicked = event.getClickedInventory();
-        if (clicked == null || !(clicked.getHolder() instanceof JailGUI)) {
-            if (event.getInventory().getHolder() instanceof JailGUI) {
-                event.setCancelled(true);
-            }
+        Inventory top = event.getView().getTopInventory();
+        if (!(top.getHolder() instanceof JailGUI)) {
             return;
         }
         event.setCancelled(true);
+
+        Inventory clicked = event.getClickedInventory();
+        if (clicked == null || clicked != top) {
+            return;
+        }
 
         Player admin = (Player) event.getWhoClicked();
         Session session = sessions.get(admin.getUniqueId());
